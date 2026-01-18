@@ -1,0 +1,11 @@
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+.venv/
+.git/
+.gitignore
+# Opcional: Se quiser que o container SEMPRE treine do zero, descomente abaixo:
+# *.pkl

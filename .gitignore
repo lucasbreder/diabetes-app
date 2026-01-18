@@ -1,0 +1,40 @@
+# --- Python ---
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# --- Ambientes Virtuais (Virtual Envs) ---
+# Nunca suba a pasta env/ para o Git!
+env/
+venv/
+.venv/
+.env
+
+# --- Machine Learning (Modelos Treinados) ---
+# Ignoramos os .pkl pois eles são binários pesados e
+# são recriados automaticamente pelo seu script de treino.
+*.pkl
+*.joblib
+model_diabetes.pkl
+imputer.pkl
+scaler.pkl
+
+# --- Jupyter Notebooks (se usar) ---
+.ipynb_checkpoints
+
+# --- IDEs e Editores ---
+.vscode/
+.idea/
+
+# --- Sistema Operacional ---
+.DS_Store
+Thumbs.db
+
+# --- Logs e Dados Temporários ---
+*.log
+
+# --- Opcional: Dados ---
+# Se o dataset for muito grande ou confidencial, descomente a linha abaixo.
+# Como seu diabetes.csv é pequeno e público, pode deixar ele subir.
+# dataset/
