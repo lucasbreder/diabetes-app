@@ -34,18 +34,3 @@ Siga os passos abaixo para construir a imagem e executar o container:
    ```
 
 ---
-
-## 🚀 Como Rodar Localmente
-
-Caso prefira rodar sem Docker, certifique-se de ter o Python instalado e siga estes passos:
-
-1. **Instalar dependências:**
-
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-2. **Executar a aplicação:**
-   ```bash
-   python main.py
-   ```

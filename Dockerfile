@@ -14,6 +14,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # 5. Copia o projeto
 COPY . .
+RUN python -m models.train_model
 
 # 6. Comando padrão
 CMD ["python", "main.py"]
