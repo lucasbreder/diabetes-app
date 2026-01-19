@@ -29,8 +29,7 @@ def dataset_pre_processor(dataset):
     X_final_array = scaler_final.fit_transform(X)
     X_final = pd.DataFrame(X_final_array, columns=X.columns, index=dataset.index)
 
-    # 6. RETORNO (A MUDANÇA ESTÁ AQUI)
-    # Independente se tem Y ou não, retornamos sempre a tupla com 3 itens
+    # 6. RETORNO 
     if y is not None:
         dataset_completo = pd.concat([X_final, y], axis=1)
         return dataset_completo, imputer, scaler_final

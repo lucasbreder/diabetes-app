@@ -6,7 +6,49 @@ from sklearn.metrics import classification_report
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.neighbors import KNeighborsClassifier
+import matplotlib.pyplot as plt
 import joblib
+import numpy as np
+import shap
+
+
+def importance_analysis(model, X_train, X_test, model_name, feature_names):
+    """
+    Função auxiliar para plotar Feature Importance e SHAP
+    """
+    print(f"\n--- Analisando Explicalidade: {model_name} ---")
+    
+    plt.figure(figsize=(10, 6))
+    
+    # A. Feature Importance (Nativo)
+    try:
+        if hasattr(model, 'feature_importances_'):
+            # Para Random Forest / Decision Tree
+            importances = model.feature_importances_
+            indices = np.argsort(importances)
+            plt.title(f'Feature Importance - {model_name}')
+            plt.barh(range(len(indices)), importances[indices], align='center')
+            plt.yticks(range(len(indices)), [feature_names[i] for i in indices])
+            plt.xlabel('Importância Relativa')
+            print("--- Gerando gráfico...")
+            plt.savefig(f'./graphs/feature_importance_{model_name}.png')
+            print("--- Gráfico salvo como feature_importance.png")
+            
+        elif hasattr(model, 'coef_'):
+            # Para Regressão Logística (Coeficientes)
+            # Pegamos o valor absoluto para ver a força, e a cor indica a direção
+            coefs = model.coef_[0]
+            indices = np.argsort(abs(coefs))
+            plt.title(f'Coeficientes (Pesos) - {model_name}')
+            plt.barh(range(len(indices)), coefs[indices], align='center')
+            plt.yticks(range(len(indices)), [feature_names[i] for i in indices])
+            plt.xlabel('Peso (Negativo = Proteção / Positivo = Risco)')
+            print("--- Gerando gráfico...")
+            plt.savefig(f'./graphs/feature_importance_{model_name}.png')
+            print("--- Gráfico salvo como feature_importance.png")
+            
+    except Exception as e:
+        print(f"Não foi possível gerar gráfico de importância simples: {e}")
 
 
 def train_model():
@@ -32,7 +74,7 @@ def train_model():
         DecisionTreeClassifier(),
         LogisticRegression(
         class_weight="balanced",
-        max_iter=1000  # <--- Adicione isso. O padrão é 100 e costuma ser pouco.
+        max_iter=1000 
         ),
         RandomForestClassifier(
         n_estimators=500,        
@@ -47,19 +89,17 @@ def train_model():
     for model in models:
         model.fit(X_train, y_train)
         y_pred = model.predict(X_test)
+        importance_analysis(model, X_train, X_test, model.__class__.__name__, X_train.columns)
         print(f"{model.__class__.__name__}")
         print("-" * 50)
         print(classification_report(y_test, y_pred))
         print("-" * 50)
 
-    # Supondo que 'model' é o seu melhor modelo (ex: LogisticRegression ou RandomForest)
-    # E que você tem os objetos 'imputer' e 'scaler' usados no pré-processamento
-
     print("Salvando o modelo e os processadores...")
 
-    print("Escolhendo e salvando o melhor modelo...")
+    print("Salvando modelo...")
 
-    # 1. Definir o modelo vencedor (sem a vírgula no final!)
+    # 1. Definir o modelo vencedor
     final_model = LogisticRegression(
         class_weight="balanced",
         max_iter=1000
