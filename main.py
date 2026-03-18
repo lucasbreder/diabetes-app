@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 import joblib
 import os
+from llm_interpreter import interpretar_resultado
 
 def limpar_tela():
     os.system('cls' if os.name == 'nt' else 'clear')
@@ -104,6 +105,20 @@ def main():
                 print(f"✅ RESULTADO: NEGATIVO (SAUDÁVEL)")
                 print(f"🛡️  Certeza do Modelo: {probabilidade[0]:.2%}")
                 print("\nRecomendação: Mantenha hábitos saudáveis.")
+            
+            # Interpretação via LLM
+            prob_final = probabilidade[1] if predicao == 1 else probabilidade[0]
+            dados_dict = dados_paciente.iloc[0].to_dict()
+            
+            print("\n" + "="*40)
+            print("   🤖 INTERPRETAÇÃO DA IA (LLama)")
+            print("="*40)
+            
+            interpretacao = interpretar_resultado(dados_dict, predicao, prob_final)
+            if interpretacao:
+                print(interpretacao)
+            else:
+                print("(Interpretação indisponível. Verifique se o Ollama está rodando: brew services start ollama)")
             
         print("\n" + "-"*40)
         continuar = input("Diagnosticar outro paciente? (s/n): ").lower()
