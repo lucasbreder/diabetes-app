@@ -1,19 +1,14 @@
 import ollama
-from typing import Optional
+from typing import Optional, Dict, Any
 
 
-def interpretar_resultado(dados_paciente: dict, predicao: int, probabilidade: float) -> Optional[str]:
+def interpretar_resultado(dados_paciente: dict, predicao: int, probabilidade: float) -> Optional[Dict[str, Any]]:
     """
     Usa o LLama (via Ollama) para gerar uma interpretação em linguagem natural
     do resultado do diagnóstico de diabetes.
-    
-    Args:
-        dados_paciente: Dicionário com os dados clínicos do paciente.
-        predicao: 0 (negativo) ou 1 (positivo para diabetes).
-        probabilidade: Percentual de certeza do modelo (0.0 a 1.0).
-    
+
     Returns:
-        Texto interpretativo gerado pela LLM, ou None em caso de falha.
+        Um dicionário com prompt e resposta, ou None em caso de falha.
     """
     resultado_texto = "POSITIVO para diabetes" if predicao == 1 else "NEGATIVO (saudável)"
     certeza = f"{probabilidade:.1%}"
@@ -45,10 +40,15 @@ Responda em português brasileiro. Seja conciso (máximo 15 linhas).
 
     try:
         response = ollama.chat(
-            model="llama3",
+            model="llama3.2:1b",
             messages=[{"role": "user", "content": prompt}]
         )
-        return response.message.content
+
+        return {
+            "prompt": prompt,
+            "response": response.message.content
+        }
+
     except Exception as e:
         print(f"\n⚠️  Não foi possível gerar a interpretação da IA: {e}")
         print("Verifique se o Ollama está rodando: ollama serve")

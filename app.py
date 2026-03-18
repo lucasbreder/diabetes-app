@@ -4,6 +4,7 @@ import numpy as np
 import joblib
 import os
 from llm_interpreter import interpretar_resultado
+from utils.save_llm_logs import salvar_resultado_llm
 
 # ========================================
 # Configuração da Página
@@ -224,9 +225,22 @@ if submitted:
     prob_final = probabilidade[1] if predicao == 1 else probabilidade[0]
     
     with st.spinner("Gerando interpretação com LLama..."):
-        interpretacao = interpretar_resultado(dados_dict, predicao, prob_final)
+        resultado_llm = interpretar_resultado(dados_dict, predicao, prob_final)
     
-    if interpretacao:
+    if resultado_llm:
+        interpretacao = resultado_llm["response"]
+        prompt_usado = resultado_llm["prompt"]
+
+        #Quando a interpretação é gerada, salvamos o resultado para análise futura.
+        salvar_resultado_llm({
+        "input_features": dados_dict,
+        "model_prediction": int(predicao),
+        "model_probability": float(prob_final),
+        "prompt_used": prompt_usado,
+        "llm_response": interpretacao,
+        "llm_model": "llama3.2:1b"
+        })
+
         st.markdown(interpretacao)
     else:
         st.warning("Interpretação indisponível. Verifique se o Ollama está rodando: `brew services start ollama`")
