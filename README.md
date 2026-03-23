@@ -16,7 +16,7 @@ A estrutura do projeto está organizada da seguinte forma:
 - **`Dockerfile`**: Arquivo de configuração para criação da imagem Docker do projeto.
 - **`requirements.txt`**: Lista de dependências Python necessárias para rodar o projeto.
 - **`tests/`**: O projeto conta com testes automatizados utilizando o framework pytest.
- - **`test_dataset_pre_processor.py`**: Foco na validação do pipeline de pré-processamento de dados.
+  - **`test_dataset_pre_processor.py`**: Foco na validação do pipeline de pré-processamento de dados.
 
 ## 🚀 Como Iniciar (Menu Interativo)
 
