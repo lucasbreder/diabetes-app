@@ -32,6 +32,8 @@ def main():
             print("\n❌ Houve um erro ao iniciar o Docker Compose. Verifique se o Docker Desktop está rodando.")
             
     elif escolha == '2':
+        print("\n📥 Verificando e baixando o modelo de IA base (llama3.2:1b). Isso pode demorar na 1ª vez...")
+        os.system("ollama pull llama3.2:1b")
         print("\n🚀 Iniciando demonstração da pipeline de Machine Learning...")
         os.system(f"{sys.executable} demo_pipeline.py")
         

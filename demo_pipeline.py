@@ -66,7 +66,7 @@ def rodar_demonstracao():
     print("📝 LAUDO GERADO PELA IA:")
     print("="*50)
     if texto_llm:
-        print(texto_llm)
+        print(texto_llm["response"])
     else:
         print("⚠️ Não foi possível conectar ao Ollama. Verifique se ele está rodando.")
 
