@@ -47,7 +47,6 @@ python run.py
 
   1. **Ativar ambiente virtual**
   source .venv/bin/activate
-  pip install pytest pytest-co
 
   2. **Executar todos os testes**
   pytest -v 
