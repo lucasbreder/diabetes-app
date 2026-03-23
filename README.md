@@ -16,21 +16,27 @@ A estrutura do projeto está organizada da seguinte forma:
 - **`Dockerfile`**: Arquivo de configuração para criação da imagem Docker do projeto.
 - **`requirements.txt`**: Lista de dependências Python necessárias para rodar o projeto.
 
-## 🐳 Como Rodar via Docker
+## 🚀 Como Iniciar (Menu Interativo)
 
-Siga os passos abaixo para construir a imagem e executar o container:
+Para facilitar a execução do projeto, foi criado um script gerenciador que permite escolher como quer rodar o projeto.
 
-1. **Construir a imagem:**
-   No diretório raiz do projeto, execute:
+> [!IMPORTANT]
+> **Pré-requisito (Ambiente Virtual)**
+> Antes de executar o projeto, você **precisa** ativar o ambiente virtual (venv). Caso contrário, as dependências (como `pandas` e `scikit-learn`) não serão encontradas no seu sistema se você optar por rodar a demonstração localmente.
 
-   ```bash
-   sudo docker build -t diabetes-app .
-   ```
+**No terminal, execute:**
+```bash
+# 1. Ative o ambiente virtual
+source .venv/bin/activate
 
-2. **Executar o container:**
-   Para rodar a aplicação de forma interativa:
-   ```bash
-   sudo docker run -it diabetes-app
-   ```
+# 2. Rode o script do menu
+python run.py
+```
+
+**Você verá um menu de opções para que você escolha algumas maneiras de executar o projeto:**
+
+1. **Abrir interface web com Docker:** Inicia o Streamlit e o Ollama através do Docker Compose. O modelo Ollama llama3.2:1b será baixado automaticamente na primeira execução. 
+2. **Uma vez iniciado o container, acesse em seu navegador o endereço para abrir o frontend do projeto:** `http://localhost:8501`.
+3. **Rodar demonstração no terminal:** Mostra a simulação da IA diretamente no terminal.
 
 ---
