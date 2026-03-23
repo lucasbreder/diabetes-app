@@ -15,6 +15,8 @@ A estrutura do projeto está organizada da seguinte forma:
 - **`*.pkl`**: Arquivos binários que armazenam o modelo treinado (`model_diabetes.pkl`), o imputador (`imputer.pkl`) e o escalonador (`scaler.pkl`).
 - **`Dockerfile`**: Arquivo de configuração para criação da imagem Docker do projeto.
 - **`requirements.txt`**: Lista de dependências Python necessárias para rodar o projeto.
+- **`tests/`**: O projeto conta com testes automatizados utilizando o framework pytest.
+ - **`test_dataset_pre_processor.py`**: Foco na validação do pipeline de pré-processamento de dados.
 
 ## 🚀 Como Iniciar (Menu Interativo)
 
@@ -39,4 +41,14 @@ python run.py
 2. **Uma vez iniciado o container, acesse em seu navegador o endereço para abrir o frontend do projeto:** `http://localhost:8501`.
 3. **Rodar demonstração no terminal:** Mostra a simulação da IA diretamente no terminal.
 
+## ▶️ Como executar os testes
+
+  Certifique-se de que o ambiente virtual está ativado antes de rodar os testes.
+
+  1. **Ativar ambiente virtual**
+  source .venv/bin/activate
+  pip install pytest pytest-co
+
+  2. **Executar todos os testes**
+  pytest -v 
 ---
