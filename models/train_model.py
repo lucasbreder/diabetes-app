@@ -1,15 +1,16 @@
+import joblib
+import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
-from pre_processor.dataset_pre_processor import dataset_pre_processor
-from sklearn.model_selection import train_test_split
+import shap
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import classification_report
-from sklearn.tree import DecisionTreeClassifier
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import train_test_split
 from sklearn.neighbors import KNeighborsClassifier
-import matplotlib.pyplot as plt
-import joblib
-import numpy as np
-import shap
+from sklearn.tree import DecisionTreeClassifier
+
+from pre_processor.dataset_pre_processor import dataset_pre_processor
 
 
 def importance_analysis(model, X_train, X_test, model_name, feature_names):
@@ -17,36 +18,36 @@ def importance_analysis(model, X_train, X_test, model_name, feature_names):
     Função auxiliar para plotar Feature Importance e SHAP
     """
     print(f"\n--- Analisando Explicalidade: {model_name} ---")
-    
+
     plt.figure(figsize=(10, 6))
-    
+
     # A. Feature Importance (Nativo)
     try:
-        if hasattr(model, 'feature_importances_'):
+        if hasattr(model, "feature_importances_"):
             # Para Random Forest / Decision Tree
             importances = model.feature_importances_
             indices = np.argsort(importances)
-            plt.title(f'Feature Importance - {model_name}')
-            plt.barh(range(len(indices)), importances[indices], align='center')
+            plt.title(f"Feature Importance - {model_name}")
+            plt.barh(range(len(indices)), importances[indices], align="center")
             plt.yticks(range(len(indices)), [feature_names[i] for i in indices])
-            plt.xlabel('Importância Relativa')
+            plt.xlabel("Importância Relativa")
             print("--- Gerando gráfico...")
-            plt.savefig(f'./graphs/feature_importance_{model_name}.png')
+            plt.savefig(f"./graphs/feature_importance_{model_name}.png")
             print("--- Gráfico salvo como feature_importance.png")
-            
-        elif hasattr(model, 'coef_'):
+
+        elif hasattr(model, "coef_"):
             # Para Regressão Logística (Coeficientes)
             # Pegamos o valor absoluto para ver a força, e a cor indica a direção
             coefs = model.coef_[0]
             indices = np.argsort(abs(coefs))
-            plt.title(f'Coeficientes (Pesos) - {model_name}')
-            plt.barh(range(len(indices)), coefs[indices], align='center')
+            plt.title(f"Coeficientes (Pesos) - {model_name}")
+            plt.barh(range(len(indices)), coefs[indices], align="center")
             plt.yticks(range(len(indices)), [feature_names[i] for i in indices])
-            plt.xlabel('Peso (Negativo = Proteção / Positivo = Risco)')
+            plt.xlabel("Peso (Negativo = Proteção / Positivo = Risco)")
             print("--- Gerando gráfico...")
-            plt.savefig(f'./graphs/feature_importance_{model_name}.png')
+            plt.savefig(f"./graphs/feature_importance_{model_name}.png")
             print("--- Gráfico salvo como feature_importance.png")
-            
+
     except Exception as e:
         print(f"Não foi possível gerar gráfico de importância simples: {e}")
 
@@ -55,16 +56,12 @@ def train_model():
     # 1. Carregar e Pré-processar
     df = pd.read_csv("./dataset/diabetes.csv")
     df_normalized, imputer, scaler = dataset_pre_processor(df)
-    X = df_normalized.drop("Outcome", axis=1) 
+    X = df_normalized.drop("Outcome", axis=1)
     y = df_normalized["Outcome"]
 
     # 2. Divisão Treino/Teste mantendo a proporção de classes
     X_train, X_test, y_train, y_test = train_test_split(
-        X,
-        y,
-        test_size=0.2,
-        random_state=42,
-        stratify=y
+        X, y, test_size=0.2, random_state=42, stratify=y
     )
 
     # 3. Modelos
@@ -72,16 +69,13 @@ def train_model():
     models = [
         KNeighborsClassifier(n_neighbors=5),
         DecisionTreeClassifier(),
-        LogisticRegression(
-        class_weight="balanced",
-        max_iter=1000 
-        ),
+        LogisticRegression(class_weight="balanced", max_iter=1000),
         RandomForestClassifier(
-        n_estimators=500,        
-        min_samples_leaf=1,     
-        class_weight="balanced_subsample",
-        random_state=42
-    )
+            n_estimators=500,
+            min_samples_leaf=1,
+            class_weight="balanced_subsample",
+            random_state=42,
+        ),
     ]
 
     # 4. Resultados
@@ -89,7 +83,9 @@ def train_model():
     for model in models:
         model.fit(X_train, y_train)
         y_pred = model.predict(X_test)
-        importance_analysis(model, X_train, X_test, model.__class__.__name__, X_train.columns)
+        importance_analysis(
+            model, X_train, X_test, model.__class__.__name__, X_train.columns
+        )
         print(f"{model.__class__.__name__}")
         print("-" * 50)
         print(classification_report(y_test, y_pred))
@@ -99,10 +95,14 @@ def train_model():
 
     print("Salvando modelo...")
 
-    # 1. Definir o modelo vencedor
-    final_model = LogisticRegression(
+    # 1. Definir o modelo vencedor, baseado no resultado do AG
+    final_model = RandomForestClassifier(
+        n_estimators=336,
+        min_samples_split=20,
+        max_depth=29,
+        min_samples_leaf=16,
         class_weight="balanced",
-        max_iter=1000
+        random_state=42,
     )
 
     # 2. TREINAR o modelo final (CRUCIAL: Você precisa ensinar ele antes de salvar)
@@ -110,12 +110,13 @@ def train_model():
 
     # 3. Salvar
     # Note que estou salvando 'final_model', que acabamos de treinar
-    joblib.dump(final_model, 'model_diabetes.pkl')
+    joblib.dump(final_model, "model_diabetes.pkl")
 
     # 4. Salvar os processadores (Esses já vieram treinados da função dataset_pre_processor)
-    joblib.dump(imputer, 'imputer.pkl')
-    joblib.dump(scaler, 'scaler.pkl')
+    joblib.dump(imputer, "imputer.pkl")
+    joblib.dump(scaler, "scaler.pkl")
 
     print("Arquivos salvos com sucesso: .pkl")
+
 
 train_model()
