@@ -1,0 +1,43 @@
+groups:
+  - name: diabetes-app-alerts
+    rules:
+
+      # App Streamlit fora do ar
+      - alert: StreamlitDown
+        expr: up{job="diabetes-app"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "App Streamlit fora do ar"
+          description: "O app de diagnóstico de diabetes não está respondendo."
+
+      # Ollama (LLM) fora do ar
+      - alert: OllamaDown
+        expr: up{job="ollama"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Ollama (LLM) fora do ar"
+          description: "O serviço de interpretação por LLM (llama3.2:1b) não está respondendo."
+
+      # CPU alta no servidor
+      - alert: HighCPU
+        expr: 100 - (avg(rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "CPU acima de 80%"
+          description: "O servidor está com uso de CPU elevado por mais de 5 minutos."
+
+      # Memória baixa (Ollama consome bastante RAM)
+      - alert: LowMemory
+        expr: (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100 < 15
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Memória disponível abaixo de 15%"
+          description: "Memória insuficiente - pode afetar o modelo Ollama llama3.2:1b."
