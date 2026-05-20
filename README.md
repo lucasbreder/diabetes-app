@@ -99,3 +99,21 @@ Garantimos a integridade do pipeline de dados com testes unitários:
 pytest -v
 ```
 Os testes validam o pré-processamento, garantindo que a normalização e a imputação de dados ocorram sem vazamento de informação (data leakage).
+
+
+
+** Lourenço 19/05/2026 **
+Foi criado um script para gerar um dataset ficticio com o objetivo de atender o solicitado no item abaixo do techchalenge.
+Foi criado outro script para unir os datos ficticios e o dataset que utilizamos como base inicial do projeto. Tudo está em /dataset
+
+  Requisitos obrigatórios >> Entregas técnicas >> Protocolos médicos especializados:
+    • Protocolos de atendimento ginecológico e obstétrico do hospital;
+    • Diretrizes para identificação e manejo de violência doméstica;
+    • Protocolos de triagem para câncer de mama e colo do útero;
+    • Procedimentos para emergências obstétricas;
+    • Diretrizes para saúde mental da mulher (depressão pós-parto,
+    ansiedade etc.);
+
+Com esses scripts finalizamos a entrega o Item 1.Fine-tuning de LLM com dados médicos especializados em saúde da mulher
+
+
