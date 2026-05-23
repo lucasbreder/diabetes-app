@@ -1,6 +1,96 @@
-# Sistema de Diagnóstico de Diabetes
+# Sistema de Diagnóstico de Diabetes + Assistente Médico de Saúde da Mulher
 
-Este projeto utiliza Inteligência Artificial e técnicas avançadas de Machine Learning para auxiliar no diagnóstico de diabetes com base em dados clínicos, com foco em precisão, interpretabilidade e equidade.
+Este projeto utiliza Inteligência Artificial e técnicas avançadas de Machine Learning para auxiliar no diagnóstico de diabetes com base em dados clínicos. Além disso, conta com um **Assistente Médico especializado em Saúde da Mulher**, integrando LLM local (Ollama) com protocolos clínicos de ginecologia, obstetrícia e saúde reprodutiva.
+
+## 📂 Organização dos Diretórios
+
+- **`analysis/`**: Notebooks e scripts para Análise Exploratória de Dados (EDA).
+- **`dataset/`**: Base de dados `diabetes.csv` e scripts de geração/junção de datasets fictícios.
+- **`genetic_optimizer/`**: Implementação do motor de Algoritmo Genético para busca de hiperparâmetros.
+- **`graphs/`**: Visualizações geradas (curvas de convergência, importância de variáveis, histogramas).
+- **`medical_assistant/`**: Módulo do Assistente Médico de Saúde da Mulher (ver seção abaixo).
+- **`models/`**:
+  - **`train_model.py`**: Pipeline principal de treinamento e exportação do modelo.
+- **`pages/`**:
+  - **`assistente_medico.py`**: Interface Streamlit multitarefa do assistente médico.
+- **`pre_processor/`**: Lógica de limpeza, imputação de valores ausentes e normalização.
+- **`main.py`**: Interface de linha de comando para inferência.
+- **`run.py`**: Menu interativo para execução simplificada.
+- **`run_genetic_optimization.py`**: Script de experimentação e otimização avançada.
+- **`*.pkl`**: Artefatos do modelo (modelo, imputer e scaler).
+
+---
+
+## 🏥 Assistente Médico — Saúde da Mulher
+
+Módulo completo de suporte clínico integrando LLM local (Ollama) com banco de dados de protocolos médicos, prontuários eletrônicos e rastreamento preventivo.
+
+### Funcionalidades
+
+| Aba | Descrição |
+|-----|-----------|
+| **Chat Clínico** | Chat contextualizado com dados da paciente, histórico obstétrico e protocolos FEBRASGO/MS |
+| **Triagem de Sintomas** | Classificação de urgência (verde/amarelo/laranja/vermelho) com recomendações |
+| **Alertas Preventivos** | Exames em atraso e resultados alterados com plano de ação personalizado |
+| **Triagem de Violência Doméstica** | Instrumento WAST (8 itens) com cálculo de risco e relatório confidencial |
+| **Encaminhamentos** | Sugestões multidisciplinares com prioridade (imediato/urgente/eletivo) e orientações pós-consulta |
+
+### Estrutura do módulo `medical_assistant/`
+
+```
+medical_assistant/
+├── __init__.py
+├── database.py          # CRUD SQLAlchemy com SQLite
+├── models.py            # ORM (Paciente, Prontuário, Exames, Ciclos, Medicamentos, Protocolos)
+├── pipeline.py          # Pipeline LCEL principal — AssistenteMedico com histórico de chat
+├── seed_data.py         # 10 protocolos FEBRASGO/MS, 8 medicamentos, 3 pacientes demo
+├── tools.py             # LangChain Tools (para futura extensão ReAct)
+└── chains/
+    ├── __init__.py
+    ├── alerts.py        # Chain de alertas de exames preventivos
+    ├── dv_screening.py  # Chain de triagem de violência doméstica (WAST)
+    ├── referrals.py     # Chain de encaminhamentos e orientações pós-consulta
+    └── triage.py        # Chain de triagem de sintomas
+```
+
+### Pacientes demo
+
+| Paciente | Perfil clínico |
+|----------|---------------|
+| Ana Clara Ferreira | Suspeita de SOP, 28 anos |
+| Beatriz Santos Lima | Pós-menopausa, 55 anos |
+| Carla Oliveira Nascimento | Suspeita de endometriose, 34 anos |
+
+### Stack técnica do assistente
+
+- **LangChain ≥ 0.3 / LCEL** — cadeias compostas com `PromptTemplate | OllamaLLM | StrOutputParser()`
+- **langchain-ollama** — `OllamaLLM` (usa `/api/generate`, compatível com instalações sem `/api/chat`)
+- **SQLAlchemy 2.0 + SQLite** — `expire_on_commit=False` para evitar `DetachedInstanceError`
+- **Streamlit** — interface multipage com streaming de respostas
+
+### Pré-requisitos adicionais
+
+```bash
+# Ollama instalado e rodando com o modelo llama3:latest
+ollama pull llama3
+
+# Dependências Python
+pip install langchain langchain-community langchain-ollama langchain-core sqlalchemy
+```
+
+### Iniciar o assistente médico
+
+```bash
+# Terminal 1 — Ollama
+ollama serve
+
+# Terminal 2 — Streamlit
+streamlit run app.py
+```
+
+Acesse `http://localhost:8501` → aba **Assistente Médico**.
+
+---
 
 ## 📂 Organização dos Diretórios
 
