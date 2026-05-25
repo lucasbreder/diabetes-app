@@ -1,5 +1,8 @@
 import streamlit as st
 from utils.shared_styles import aplicar_estilos_globais, card_urgencia, exibir_disclaimer
+from utils.paciente_selector import render_seletor_sidebar
+from utils.fluxo_runner import executar_fluxo_com_progresso
+from utils.form_reset import render_botao_nova_consulta
 
 st.set_page_config(page_title="Triagem Ginecológica", page_icon="🩺", layout="wide")
 aplicar_estilos_globais()
@@ -12,6 +15,34 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ========================================
+# Seletor de paciente (sidebar)
+# ========================================
+contexto = render_seletor_sidebar()
+
+prefill_nome = contexto.nome if contexto else ""
+prefill_idade = contexto.idade if contexto else 30
+prefill_gestacoes = contexto.gestacoes if contexto else 0
+prefill_contraceptivo = contexto.metodo_contraceptivo if contexto else "Nenhum"
+prefill_queixas = contexto.queixas if contexto else ""
+
+OPCOES_CONTRACEPTIVO = [
+    "Nenhum", "Pílula combinada", "Pílula progestágeno", "DIU de cobre",
+    "DIU hormonal (Mirena)", "Implante", "Injetável", "Preservativo", "Outro",
+]
+
+
+def _encontrar_indice(lista: list[str], valor: str | None, fallback: int = 0) -> int:
+    """Localiza o índice do valor na lista, tolerando substrings (ex.: 'DIU hormonal' ∈ 'DIU hormonal (Mirena)')."""
+    if not valor:
+        return fallback
+    valor_low = valor.lower()
+    for i, op in enumerate(lista):
+        if op.lower() == valor_low or op.lower() in valor_low or valor_low in op.lower():
+            return i
+    return fallback
+
+
+# ========================================
 # Formulário
 # ========================================
 with st.form("form_triagem_gineco"):
@@ -19,19 +50,24 @@ with st.form("form_triagem_gineco"):
 
     with col1:
         st.markdown("#### 👤 Dados da Paciente")
-        nome = st.text_input("Nome da paciente", placeholder="Ex: Maria Silva")
-        idade = st.number_input("Idade", min_value=10, max_value=100, value=30)
-        gestacoes = st.number_input("Gestações anteriores", min_value=0, max_value=20, value=0)
-        contraceptivo = st.selectbox("Uso de contraceptivo", [
-            "Nenhum", "Pílula combinada", "Pílula progestágeno", "DIU de cobre",
-            "DIU hormonal (Mirena)", "Implante", "Injetável", "Preservativo", "Outro"
-        ])
+        nome = st.text_input("Nome da paciente", value=prefill_nome, placeholder="Ex: Maria Silva")
+        idade = st.number_input("Idade", min_value=10, max_value=100, value=prefill_idade)
+        gestacoes = st.number_input("Gestações anteriores", min_value=0, max_value=20, value=prefill_gestacoes)
+        contraceptivo = st.selectbox(
+            "Uso de contraceptivo",
+            OPCOES_CONTRACEPTIVO,
+            index=_encontrar_indice(OPCOES_CONTRACEPTIVO, prefill_contraceptivo),
+        )
 
     with col2:
         st.markdown("#### 📋 Histórico")
         historico_menstrual = st.text_area(
             "Histórico menstrual",
             placeholder="Ex: Ciclos regulares de 28 dias, fluxo moderado",
+            value=(
+                f"Última menstruação: {contexto.ultima_menstruacao}"
+                if contexto and contexto.ultima_menstruacao else ""
+            ),
             height=80,
         )
         ultima_consulta = st.text_input("Última consulta ginecológica", placeholder="Ex: 2024-06-15")
@@ -47,7 +83,12 @@ with st.form("form_triagem_gineco"):
         "Prurido genital", "Dor abdominal aguda", "Sangramento pós-menopausa",
         "Massa palpável", "Febre alta", "Amenorreia", "Dismenorreia intensa",
     ])
-    queixas_extra = st.text_area("Queixas adicionais", placeholder="Descreva outros sintomas...", height=60)
+    queixas_extra = st.text_area(
+        "Queixas adicionais",
+        value=prefill_queixas,
+        placeholder="Descreva outros sintomas...",
+        height=60,
+    )
 
     submitted = st.form_submit_button("🚀 Executar Triagem", use_container_width=True, type="primary")
 
@@ -61,8 +102,12 @@ if submitted:
 
     from flows.triagem_ginecologica import criar_fluxo_triagem_ginecologica
 
+    paciente_id_str = (
+        f"PAC-{contexto.paciente_id:04d}" if contexto else f"PAC-{hash(nome) % 10000:04d}"
+    )
+
     entrada = {
-        "paciente_id": f"PAC-{hash(nome) % 10000:04d}",
+        "paciente_id": paciente_id_str,
         "nome_paciente": nome,
         "idade": idade,
         "sintomas": sintomas,
@@ -74,15 +119,30 @@ if submitted:
         "queixas_adicionais": queixas_extra or "Nenhuma",
     }
 
-    with st.spinner("⏳ Executando triagem com IA..."):
-        fluxo = criar_fluxo_triagem_ginecologica()
-        resultado = fluxo.invoke(entrada)
+    fluxo = criar_fluxo_triagem_ginecologica()
+    resultado = executar_fluxo_com_progresso(
+        fluxo,
+        entrada,
+        titulo="⏳ Executando triagem ginecológica...",
+        titulo_final="✅ Triagem concluída",
+        rotulos_nos={
+            "analisar_sintomas": "Analisando sintomas e fatores de risco",
+            "classificar_urgencia": "Classificando urgência (vermelho/amarelo/verde)",
+            "sugerir_exames": "Sugerindo exames complementares",
+            "gerar_orientacoes": "Gerando orientações personalizadas (LLM)",
+            "realizar_agendamento": "Definindo agendamento apropriado",
+        },
+    )
 
     # ========================================
     # Resultados
     # ========================================
     st.divider()
-    st.markdown("## 📊 Resultado da Triagem")
+    col_titulo, col_acao = st.columns([3, 1])
+    with col_titulo:
+        st.markdown("## 📊 Resultado da Triagem")
+    with col_acao:
+        render_botao_nova_consulta(chave_botao="btn_nova_triagem_gineco")
 
     # Classificação de urgência
     urgencia = resultado.get("classificacao_urgencia", {})
