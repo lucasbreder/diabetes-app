@@ -134,6 +134,7 @@ from medical_assistant.audit import listar_alertas_pendentes, registrar_acesso_s
 
 from utils.paciente_selector import render_seletor_sidebar, SESSION_KEY as PACIENTE_SESSION_KEY
 from utils.auth_pin import render_login_sidebar, esta_autenticado, profissional_atual
+from utils.fluxo_runner import stream_llm_com_status
 
 
 # ─────────────────────────────────────────────
@@ -307,6 +308,17 @@ with tab_chat:
         with st.chat_message(msg["role"], avatar="🏥" if msg["role"] == "assistant" else "👩‍⚕️"):
             st.markdown(msg["content"])
 
+    # Ícones por tipo de etapa do pipeline
+    ICONES_ETAPA = {
+        "inicio": "🚀",
+        "contexto_paciente": "👤",
+        "protocolos": "📚",
+        "llm_inicio": "🤖",
+        "validacao": "🛡️",
+        "fim": "✅",
+        "erro": "⚠️",
+    }
+
     # Input
     if prompt := st.chat_input("Pergunte sobre a paciente, sintomas, protocolos..."):
         st.session_state.mensagens_chat.append({"role": "user", "content": prompt})
@@ -315,27 +327,74 @@ with tab_chat:
             st.markdown(prompt)
 
         with st.chat_message("assistant", avatar="🏥"):
-            with st.spinner("Consultando base de dados clínica..."):
-                try:
-                    resposta_completa = ""
-                    placeholder = st.empty()
+            resposta_completa = ""
+            houve_erro = False
 
-                    for chunk in st.session_state.assistente.stream_chat(prompt):
-                        resposta_completa += chunk
-                        placeholder.markdown(resposta_completa + "▌")
+            # Status COM o passo a passo (será colapsado ao final)
+            status = st.status("Processando consulta clínica…", expanded=True)
+            # Placeholder do texto FORA do status — assim a resposta permanece
+            # visível mesmo após o status colapsar.
+            placeholder_texto = st.empty()
 
-                    placeholder.markdown(resposta_completa)
-                    st.session_state.mensagens_chat.append({
-                        "role": "assistant",
-                        "content": resposta_completa,
-                    })
-                except Exception as e:
-                    erro = f"⚠️ Erro ao processar: {e}\n\nVerifique se o Ollama está rodando: `ollama serve`"
-                    st.error(erro)
-                    st.session_state.mensagens_chat.append({
-                        "role": "assistant",
-                        "content": erro,
-                    })
+            try:
+                for evento in st.session_state.assistente.stream_chat_com_etapas(prompt):
+                    icone = ICONES_ETAPA.get(evento.tipo, "•")
+
+                    if evento.tipo == "llm_token":
+                        resposta_completa += evento.payload
+                        placeholder_texto.markdown(resposta_completa + "▌")
+                    elif evento.tipo == "erro":
+                        houve_erro = True
+                        with status:
+                            st.error(f"{icone} {evento.rotulo}: {evento.detalhe}")
+                    elif evento.tipo == "fim":
+                        # Pode haver complemento (avisos pós-validação) a anexar
+                        if evento.payload:
+                            resposta_completa += evento.payload
+                        placeholder_texto.markdown(resposta_completa)
+                        with status:
+                            st.write(f"{icone} **{evento.rotulo}**")
+                    else:
+                        with status:
+                            linha = f"{icone} **{evento.rotulo}**"
+                            if evento.detalhe:
+                                linha += f" — _{evento.detalhe}_"
+                            st.write(linha)
+
+                # Garante que a versão final fique sem cursor
+                if resposta_completa:
+                    placeholder_texto.markdown(resposta_completa)
+
+                if houve_erro:
+                    status.update(
+                        label="Processamento concluído com avisos",
+                        state="error",
+                        expanded=True,
+                    )
+                else:
+                    status.update(
+                        label=f"✅ Resposta gerada em {len(resposta_completa)} caracteres — clique para ver etapas",
+                        state="complete",
+                        expanded=False,
+                    )
+            except Exception as e:
+                status.update(label=f"❌ Erro: {e}", state="error", expanded=True)
+                erro_msg = (
+                    f"⚠️ Erro ao processar: {e}\n\n"
+                    f"Verifique se o Ollama está rodando: `ollama serve`"
+                )
+                st.error(erro_msg)
+                st.session_state.mensagens_chat.append({
+                    "role": "assistant",
+                    "content": erro_msg,
+                })
+                st.stop()
+
+            if resposta_completa:
+                st.session_state.mensagens_chat.append({
+                    "role": "assistant",
+                    "content": resposta_completa,
+                })
 
 
 # ─── TAB 2: TRIAGEM DE SINTOMAS ────────────────
@@ -398,23 +457,21 @@ with tab_triagem:
                     )
 
             st.divider()
-            with st.spinner("Analisando sintomas..."):
-                resultado_placeholder = st.empty()
-                texto_acumulado = ""
-                try:
-                    for chunk in stream_triagem_sintomas(
+            try:
+                stream_llm_com_status(
+                    stream_triagem_sintomas(
                         sintomas=sintomas_lista,
                         duracao=duracao or "Não informado",
                         intensidade=intensidade if intensidade > 0 else None,
                         historico=historico or "Não informado",
                         contexto_paciente=contexto,
                         modelo=st.session_state.modelo,
-                    ):
-                        texto_acumulado += chunk
-                        resultado_placeholder.markdown(texto_acumulado + "▌")
-                    resultado_placeholder.markdown(texto_acumulado)
-                except Exception as e:
-                    st.error(f"Erro: {e}. Verifique se o Ollama está rodando.")
+                    ),
+                    titulo="🩺 Executando triagem clínica…",
+                    etapa_preparacao="👤 Sintomas e contexto da paciente preparados",
+                )
+            except Exception as e:
+                st.error(f"Erro: {e}. Verifique se o Ollama está rodando.")
 
 
 # ─── TAB 3: ALERTAS DE EXAMES ──────────────────
@@ -472,16 +529,17 @@ with tab_alertas:
         if atrasados or alterados:
             st.divider()
             if st.button("🤖 Gerar Plano de Ação com IA", type="primary"):
-                with st.spinner("Gerando plano de ação..."):
-                    texto_placeholder = st.empty()
-                    texto_acum = ""
-                    try:
-                        for chunk in stream_alertas_exames(pac_id, modelo=st.session_state.modelo):
-                            texto_acum += chunk
-                            texto_placeholder.markdown(texto_acum + "▌")
-                        texto_placeholder.markdown(texto_acum)
-                    except Exception as e:
-                        st.error(f"Erro: {e}")
+                try:
+                    stream_llm_com_status(
+                        stream_alertas_exames(pac_id, modelo=st.session_state.modelo),
+                        titulo="📋 Gerando plano de ação preventiva…",
+                        etapa_preparacao=(
+                            f"📅 {len(atrasados)} exame(s) atrasado(s) e "
+                            f"{len(alterados)} resultado(s) alterado(s) carregados"
+                        ),
+                    )
+                except Exception as e:
+                    st.error(f"Erro: {e}")
 
 
 # ─── TAB 4: TRIAGEM DE VIOLÊNCIA DOMÉSTICA ─────
@@ -585,13 +643,15 @@ with tab_vd:
                         f'border-radius:10px;padding:1rem;border-left:4px solid #6366f1;">',
                         unsafe_allow_html=True,
                     )
-                    placeholder = st.empty()
-                    texto_acum = ""
                     try:
-                        for chunk in stream:
-                            texto_acum += chunk
-                            placeholder.markdown(texto_acum + "▌")
-                        placeholder.markdown(texto_acum)
+                        stream_llm_com_status(
+                            stream,
+                            titulo="🔒 Elaborando relatório confidencial…",
+                            etapa_preparacao=(
+                                f"📋 WAST calculado: nível **{nivel_resultado.upper()}** "
+                                f"(notificação compulsória se ≥ alto)"
+                            ),
+                        )
                     except Exception as e:
                         st.error(f"Erro: {e}")
                     st.markdown("</div>", unsafe_allow_html=True)
@@ -698,23 +758,21 @@ with tab_encaminhamentos:
             st.warning("Informe as queixas principais.")
         else:
             st.divider()
-            with st.spinner("Analisando quadro clínico..."):
-                placeholder = st.empty()
-                texto_acum = ""
-                try:
-                    for chunk in stream_encaminhamentos(
+            try:
+                stream_llm_com_status(
+                    stream_encaminhamentos(
                         contexto_paciente=contexto_enc or "Não informado",
                         queixas=queixas_enc,
                         diagnosticos=diagnostico_enc or "A definir",
                         exames_alterados=exames_alt_texto,
                         fatores_risco=fatores_risco_enc or "Não identificados",
                         modelo=st.session_state.modelo,
-                    ):
-                        texto_acum += chunk
-                        placeholder.markdown(texto_acum + "▌")
-                    placeholder.markdown(texto_acum)
-                except Exception as e:
-                    st.error(f"Erro: {e}. Verifique se o Ollama está rodando.")
+                    ),
+                    titulo="🔀 Mapeando encaminhamentos multidisciplinares…",
+                    etapa_preparacao="🧠 Contexto clínico e queixas consolidados",
+                )
+            except Exception as e:
+                st.error(f"Erro: {e}. Verifique se o Ollama está rodando.")
 
     st.divider()
     st.caption("📞 **Recursos de apoio:** CVL 180 (Central da Mulher) | SAMU 192 | Ligue 100 (violência infanto-juvenil)")

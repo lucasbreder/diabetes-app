@@ -6,7 +6,8 @@ Usa injeção de contexto estruturado em vez de agente ReAct para maior compatib
 
 from __future__ import annotations
 
-from typing import Iterator
+from dataclasses import dataclass
+from typing import Iterator, Literal, Union
 
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.output_parsers import StrOutputParser
@@ -143,6 +144,31 @@ def _buscar_protocolos_relevantes(mensagem: str) -> str:
 
 
 # ─────────────────────────────────────────────
+# Eventos de progresso (para UI de streaming com etapas)
+# ─────────────────────────────────────────────
+
+TipoEtapa = Literal[
+    "inicio",                # início do processamento
+    "contexto_paciente",     # busca de dados clínicos no banco
+    "protocolos",            # recuperação de protocolos FEBRASGO/INCA/MS
+    "llm_inicio",            # primeira chamada ao LLM
+    "llm_token",             # cada chunk de resposta do LLM
+    "validacao",             # guardrails + auditoria + explicabilidade
+    "fim",                   # conclusão (resposta_final pronta)
+    "erro",                  # falha em qualquer etapa
+]
+
+
+@dataclass
+class EventoChat:
+    """Evento emitido durante o processamento de uma mensagem do chat."""
+    tipo: TipoEtapa
+    rotulo: str = ""           # rótulo legível para UI
+    detalhe: str = ""          # contexto extra (ex.: "3 protocolos encontrados")
+    payload: str = ""          # texto associado (chunk LLM, resposta final, traceback)
+
+
+# ─────────────────────────────────────────────
 # Pipeline Principal
 # ─────────────────────────────────────────────
 
@@ -198,39 +224,126 @@ class AssistenteMedico:
         return resposta
 
     def stream_chat(self, mensagem: str) -> Iterator[str]:
-        """Versão streaming do chat para uso com Streamlit."""
-        contexto = (
-            _montar_contexto_paciente(self.paciente_id)
-            if self.paciente_id
-            else "Nenhuma paciente selecionada. Respondendo com conhecimento geral em saúde da mulher."
-        )
-        protocolos = _buscar_protocolos_relevantes(mensagem)
+        """Versão streaming do chat para uso com Streamlit (compatível com versão anterior).
 
+        Para feedback de progresso por etapa, prefira `stream_chat_com_etapas`.
+        """
+        for evento in self.stream_chat_com_etapas(mensagem):
+            if evento.tipo == "llm_token":
+                yield evento.payload
+            elif evento.tipo == "fim":
+                # complemento da validação (se algo foi adicionado pelos guardrails)
+                if evento.payload:
+                    yield evento.payload
+            elif evento.tipo == "erro":
+                yield f"\n\n⚠️ {evento.rotulo}: {evento.detalhe}"
+
+    def stream_chat_com_etapas(self, mensagem: str) -> Iterator[EventoChat]:
+        """
+        Versão streaming com **eventos de progresso** por etapa do pipeline.
+
+        Emite EventoChat para: contexto_paciente → protocolos → llm_inicio →
+        llm_token (vários) → validacao → fim. A UI pode usar `st.status()`
+        para mostrar cada etapa em tempo real.
+        """
+        yield EventoChat(
+            tipo="inicio",
+            rotulo="Iniciando processamento",
+            detalhe=f"Modelo: {self.modelo}",
+        )
+
+        # Etapa 1: contexto da paciente
+        try:
+            if self.paciente_id:
+                contexto = _montar_contexto_paciente(self.paciente_id)
+                num_linhas = len([linha for linha in contexto.split("\n") if linha.strip()])
+                yield EventoChat(
+                    tipo="contexto_paciente",
+                    rotulo="Contexto clínico da paciente recuperado",
+                    detalhe=f"{num_linhas} item(ns) consolidados do prontuário",
+                )
+            else:
+                contexto = "Nenhuma paciente selecionada. Respondendo com conhecimento geral em saúde da mulher."
+                yield EventoChat(
+                    tipo="contexto_paciente",
+                    rotulo="Sem paciente selecionada",
+                    detalhe="Usando conhecimento geral em saúde da mulher",
+                )
+        except Exception as exc:
+            yield EventoChat(tipo="erro", rotulo="Falha ao buscar contexto", detalhe=str(exc))
+            return
+
+        # Etapa 2: protocolos relevantes
+        try:
+            protocolos = _buscar_protocolos_relevantes(mensagem)
+            num_protocolos = protocolos.count("[") if protocolos else 0
+            if num_protocolos:
+                yield EventoChat(
+                    tipo="protocolos",
+                    rotulo="Protocolos FEBRASGO/INCA/MS consultados",
+                    detalhe=f"{num_protocolos} protocolo(s) indexado(s) recuperado(s)",
+                )
+            else:
+                yield EventoChat(
+                    tipo="protocolos",
+                    rotulo="Sem protocolo indexado para esta consulta",
+                    detalhe="Conhecimento geral será utilizado",
+                )
+        except Exception as exc:
+            yield EventoChat(tipo="erro", rotulo="Falha ao buscar protocolos", detalhe=str(exc))
+            return
+
+        # Etapa 3: chamada ao LLM (streaming token a token)
+        yield EventoChat(
+            tipo="llm_inicio",
+            rotulo=f"Consultando LLM ({self.modelo})",
+            detalhe="Gerando resposta clínica…",
+        )
         resposta_completa = ""
-        for chunk in self._chain.stream({
-            "input": mensagem,
-            "chat_history": _formatar_historico(self.historico),
-            "contexto_paciente": contexto,
-            "protocolos_contexto": protocolos,
-            "regras_seguranca": REGRAS_SEGURANCA_PROMPT,
-        }):
-            resposta_completa += chunk
-            yield chunk
+        try:
+            for chunk in self._chain.stream({
+                "input": mensagem,
+                "chat_history": _formatar_historico(self.historico),
+                "contexto_paciente": contexto,
+                "protocolos_contexto": protocolos,
+                "regras_seguranca": REGRAS_SEGURANCA_PROMPT,
+            }):
+                resposta_completa += chunk
+                yield EventoChat(tipo="llm_token", payload=chunk)
+        except Exception as exc:
+            yield EventoChat(tipo="erro", rotulo="Falha na chamada ao LLM", detalhe=str(exc))
+            return
 
-        resposta_final, _ = processar_resposta_final(
-            resposta_completa,
-            mensagem_usuario=mensagem,
-            paciente_id=self.paciente_id,
-            fluxo="chat",
-            especialidade="ginecologia",
-            protocolos_contexto=protocolos,
-            contexto_paciente=contexto,
+        # Etapa 4: validação, guardrails, auditoria e explicabilidade
+        yield EventoChat(
+            tipo="validacao",
+            rotulo="Validando resposta",
+            detalhe="Guardrails de segurança, auditoria e explicabilidade",
         )
-        if len(resposta_final) > len(resposta_completa):
-            yield resposta_final[len(resposta_completa):]
-            resposta_completa = resposta_final
+        try:
+            resposta_final, _ = processar_resposta_final(
+                resposta_completa,
+                mensagem_usuario=mensagem,
+                paciente_id=self.paciente_id,
+                fluxo="chat",
+                especialidade="ginecologia",
+                protocolos_contexto=protocolos,
+                contexto_paciente=contexto,
+            )
+        except Exception as exc:
+            yield EventoChat(tipo="erro", rotulo="Falha na validação da resposta", detalhe=str(exc))
+            return
 
-        self._atualizar_historico(mensagem, resposta_completa)
+        complemento = ""
+        if len(resposta_final) > len(resposta_completa):
+            complemento = resposta_final[len(resposta_completa):]
+
+        self._atualizar_historico(mensagem, resposta_final)
+        yield EventoChat(
+            tipo="fim",
+            rotulo="Resposta validada e registrada na auditoria",
+            payload=complemento,
+        )
 
     def _atualizar_historico(self, pergunta: str, resposta: str) -> None:
         self.historico.append(HumanMessage(content=pergunta))
