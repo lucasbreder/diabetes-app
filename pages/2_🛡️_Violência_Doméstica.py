@@ -1,5 +1,7 @@
 import streamlit as st
 from utils.shared_styles import aplicar_estilos_globais, exibir_disclaimer
+from utils.paciente_selector import render_seletor_sidebar
+from utils.fluxo_runner import executar_fluxo_com_progresso
 
 st.set_page_config(page_title="Violência Doméstica", page_icon="🛡️", layout="wide")
 aplicar_estilos_globais()
@@ -12,6 +14,14 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ========================================
+# Seletor de paciente (sidebar)
+# ========================================
+contexto = render_seletor_sidebar()
+
+prefill_nome = contexto.nome if contexto else ""
+prefill_idade = contexto.idade if contexto else 28
+
+# ========================================
 # Formulário
 # ========================================
 with st.form("form_violencia"):
@@ -19,8 +29,8 @@ with st.form("form_violencia"):
 
     with col1:
         st.markdown("#### 👤 Dados da Paciente")
-        nome = st.text_input("Nome da paciente", placeholder="Ex: Ana Oliveira")
-        idade = st.number_input("Idade", min_value=1, max_value=100, value=28)
+        nome = st.text_input("Nome da paciente", value=prefill_nome, placeholder="Ex: Ana Oliveira")
+        idade = st.number_input("Idade", min_value=1, max_value=100, value=prefill_idade)
         historico_atend = st.number_input(
             "Nº de atendimentos anteriores no último ano", min_value=0, max_value=50, value=0,
         )
@@ -85,8 +95,12 @@ if submitted:
 
     from flows.violencia_domestica import criar_fluxo_violencia_domestica
 
+    paciente_id_str = (
+        f"PAC-{contexto.paciente_id:04d}" if contexto else f"PAC-{hash(nome) % 10000:04d}"
+    )
+
     entrada = {
-        "paciente_id": f"PAC-{hash(nome) % 10000:04d}",
+        "paciente_id": paciente_id_str,
         "nome_paciente": nome,
         "idade": idade,
         "sinais_alerta": sinais,
@@ -97,9 +111,21 @@ if submitted:
         "comportamento_observado": comportamento,
     }
 
-    with st.spinner("⏳ Avaliando risco..."):
-        fluxo = criar_fluxo_violencia_domestica()
-        resultado = fluxo.invoke(entrada)
+    fluxo = criar_fluxo_violencia_domestica()
+    resultado = executar_fluxo_com_progresso(
+        fluxo,
+        entrada,
+        titulo="⏳ Avaliando risco de violência doméstica...",
+        titulo_final="✅ Avaliação concluída",
+        rotulos_nos={
+            "identificar_sinais_alerta": "Identificando sinais de alerta",
+            "avaliar_risco": "Avaliando nível de risco",
+            "definir_protocolo_seguranca": "Definindo protocolo de segurança",
+            "acionar_equipe": "Acionando equipe especializada",
+            "documentar_caso": "Documentando caso (sigiloso)",
+            "planejar_seguimento": "Planejando seguimento",
+        },
+    )
 
     # ========================================
     # Resultados
