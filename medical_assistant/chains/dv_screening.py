@@ -14,6 +14,9 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import PromptTemplate
 from langchain_ollama import OllamaLLM
 
+from ..safety import REGRAS_SEGURANCA_PROMPT
+from ..validation_pipeline import processar_resposta_final, stream_com_processamento
+
 # Instrumento WAST adaptado ao português (BR) – 8 itens
 PERGUNTAS_WAST = [
     "Em geral, como você descreveria seu relacionamento? (há tensão/problemas)",
@@ -38,6 +41,8 @@ Notificação ao SINAN é obrigatória quando confirmada violência.
 Em risco crítico: acionar rede de proteção imediatamente.
 Responda em português brasileiro com linguagem técnica.
 
+{regras_seguranca}
+
 Resultado da triagem WAST para a paciente {nome_paciente}:
 Pontuação total WAST: {pontuacao}/16
 Nível de risco: {nivel_risco}
@@ -54,6 +59,8 @@ PROMPT_ABORDAGEM_PACIENTE = PromptTemplate.from_template(
     """Você é uma profissional de saúde treinada para acolher mulheres em situação de vulnerabilidade.
 Crie uma mensagem de acolhimento verbal, em linguagem simples e empática, sem alarmar.
 Informe sobre recursos disponíveis. Responda em português brasileiro.
+
+{regras_seguranca}
 
 Mensagem de acolhimento para mulher com nível de risco {nivel_risco} de violência doméstica.
 Inclua: acolhimento empático, recursos (180, CREAS, Delegacia da Mulher), plano de segurança básico se risco moderado/alto/crítico, reafirmação de confidencialidade.
@@ -116,17 +123,28 @@ def executar_triagem_violencia(
     llm = OllamaLLM(model=modelo, temperature=0.2)
 
     chain_relatorio = PROMPT_TRIAGEM_VD | llm | StrOutputParser()
-    relatorio = chain_relatorio.invoke({
+    relatorio_bruto = chain_relatorio.invoke({
         "nome_paciente": nome_paciente,
         "pontuacao": pontuacao,
         "nivel_risco": nivel_risco.upper(),
         "indicadores_positivos": "\n".join(indicadores_positivos) if indicadores_positivos else "Nenhum indicador positivo",
         "sinais_fisicos": ", ".join(sinais_fisicos) if sinais_fisicos else "Nenhum observado",
         "observacoes": observacoes or "Sem observações adicionais",
+        "regras_seguranca": REGRAS_SEGURANCA_PROMPT,
     })
+    relatorio, _ = processar_resposta_final(
+        relatorio_bruto,
+        mensagem_usuario="violência doméstica triagem WAST",
+        fluxo="vd",
+        especialidade="violencia_domestica",
+        nivel_risco_vd=nivel_risco,
+    )
 
     chain_abordagem = PROMPT_ABORDAGEM_PACIENTE | llm | StrOutputParser()
-    mensagem_paciente = chain_abordagem.invoke({"nivel_risco": nivel_risco})
+    mensagem_paciente = chain_abordagem.invoke({
+        "nivel_risco": nivel_risco,
+        "regras_seguranca": REGRAS_SEGURANCA_PROMPT,
+    })
 
     return {
         "pontuacao": pontuacao,
@@ -157,11 +175,19 @@ def stream_triagem_violencia(
     llm = OllamaLLM(model=modelo, temperature=0.2)
     chain = PROMPT_TRIAGEM_VD | llm | StrOutputParser()
 
-    return nivel_risco, chain.stream({
+    stream = chain.stream({
         "nome_paciente": nome_paciente,
         "pontuacao": pontuacao,
         "nivel_risco": nivel_risco.upper(),
         "indicadores_positivos": "\n".join(indicadores_positivos) if indicadores_positivos else "Nenhum indicador positivo",
         "sinais_fisicos": ", ".join(sinais_fisicos) if sinais_fisicos else "Nenhum observado",
         "observacoes": observacoes or "Sem observações adicionais",
+        "regras_seguranca": REGRAS_SEGURANCA_PROMPT,
     })
+    return nivel_risco, stream_com_processamento(
+        stream,
+        mensagem_usuario="violência doméstica triagem WAST",
+        fluxo="vd",
+        especialidade="violencia_domestica",
+        nivel_risco_vd=nivel_risco,
+    )

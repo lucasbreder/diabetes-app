@@ -33,24 +33,35 @@ class EstadoTriagemGinecologica(TypedDict):
     resumo_final: str
 
 
+def _resumo_paciente_triagem(state: EstadoTriagemGinecologica) -> str:
+    return (
+        f"Paciente: {state.get('nome_paciente', 'N/I')} | Idade: {state.get('idade', 'N/I')}\n"
+        f"Sintomas: {', '.join(state.get('sintomas', [])) or 'Nenhum'}\n"
+        f"Histórico menstrual: {state.get('historico_menstrual', 'N/I')}\n"
+        f"Contraceptivo: {state.get('uso_contraceptivo', 'N/I')}\n"
+        f"Gestações: {state.get('gestacoes_anteriores', 0)} | "
+        f"Última consulta: {state.get('ultima_consulta_gineco', 'N/A')}\n"
+        f"Histórico familiar: {', '.join(state.get('historico_familiar', [])) or 'Nenhum'}"
+    )
+
+
 def analisar_sintomas(state: EstadoTriagemGinecologica) -> dict:
     """Nó 1 — Analisa sintomas e identifica padrões de risco via LLM."""
     sintomas_texto = ", ".join(state["sintomas"])
-    hist_fam = ", ".join(state.get("historico_familiar", [])) or "Nenhum"
-
+    resumo = _resumo_paciente_triagem(state)
     prompt = (
-        f"Você é um sistema de triagem ginecológica.\n"
-        f"Paciente: {state['nome_paciente']}, {state['idade']} anos\n"
-        f"Sintomas: {sintomas_texto}\n"
-        f"Histórico menstrual: {state['historico_menstrual']}\n"
-        f"Contraceptivo: {state['uso_contraceptivo']}\n"
-        f"Gestações: {state['gestacoes_anteriores']}\n"
-        f"Última consulta: {state['ultima_consulta_gineco']}\n"
-        f"Histórico familiar: {hist_fam}\n\n"
+        f"Você é um sistema de triagem ginecológica.\n{resumo}\n\n"
         f"Analise os riscos e liste condições suspeitas, fatores de risco e "
         f"nível de risco (baixo/moderado/alto). Responda em português."
     )
-    resposta = consultar_llm(prompt)
+    resposta = consultar_llm(
+        prompt,
+        fluxo="triagem",
+        especialidade="ginecologia",
+        contexto_paciente=resumo,
+        contexto_guardrail=sintomas_texto,
+        incluir_explicabilidade=False,
+    )
 
     # Fallback baseado em regras
     alto = ["sangramento intenso", "dor abdominal aguda", "massa palpável", "febre alta"]
@@ -90,13 +101,19 @@ def classificar_urgencia(state: EstadoTriagemGinecologica) -> dict:
 def sugerir_exames(state: EstadoTriagemGinecologica) -> dict:
     """Nó 3 — Sugere exames laboratoriais e de imagem."""
     urgencia = state.get("classificacao_urgencia", {})
+    resumo = _resumo_paciente_triagem(state)
     prompt = (
-        f"Sugira exames ginecológicos para: {state['nome_paciente']}, "
-        f"{state['idade']} anos. Sintomas: {', '.join(state['sintomas'])}. "
-        f"Urgência: {urgencia.get('codigo', 'N/A')}. "
+        f"Sugira exames ginecológicos.\n{resumo}\n"
+        f"Urgência: {urgencia.get('codigo', 'N/A')}.\n"
         f"Liste até 6 exames com justificativa. Português brasileiro."
     )
-    resposta_llm = consultar_llm(prompt)
+    resposta_llm = consultar_llm(
+        prompt,
+        fluxo="triagem",
+        especialidade="ginecologia",
+        contexto_paciente=resumo,
+        incluir_explicabilidade=False,
+    )
 
     exames = [
         {"nome": "Papanicolau", "justificativa": "Rastreamento cervical", "prioridade": "rotina"},
@@ -112,14 +129,20 @@ def gerar_orientacoes(state: EstadoTriagemGinecologica) -> dict:
     """Nó 4 — Orientações iniciais personalizadas para a paciente."""
     urgencia = state.get("classificacao_urgencia", {})
     exames_nomes = ", ".join(e["nome"] for e in state.get("exames_sugeridos", []))
+    resumo = _resumo_paciente_triagem(state)
     prompt = (
-        f"Gere orientações para a paciente {state['nome_paciente']}, {state['idade']} anos.\n"
+        f"Gere orientações para a paciente.\n{resumo}\n"
         f"Urgência: {urgencia.get('codigo', '')}. Exames: {exames_nomes}.\n"
-        f"Sintomas: {', '.join(state['sintomas'])}.\n"
         f"Inclua: preparo para exames, sinais de alerta, cuidados gerais. "
         f"Seja empática. Português brasileiro. Máximo 15 linhas."
     )
-    return {"orientacoes": consultar_llm(prompt)}
+    return {"orientacoes": consultar_llm(
+        prompt,
+        fluxo="triagem",
+        especialidade="ginecologia",
+        contexto_paciente=resumo,
+        incluir_explicabilidade=True,
+    )}
 
 
 def realizar_agendamento(state: EstadoTriagemGinecologica) -> dict:

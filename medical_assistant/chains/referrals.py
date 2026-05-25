@@ -9,11 +9,16 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import PromptTemplate
 from langchain_ollama import OllamaLLM
 
+from ..safety import REGRAS_SEGURANCA_PROMPT
+from ..validation_pipeline import processar_resposta_final, stream_com_processamento
+
 PROMPT_ENCAMINHAMENTOS = PromptTemplate.from_template(
     """Você é uma coordenadora de cuidados clínicos especializada na rede de saúde da mulher no Brasil.
 Sugira encaminhamentos multidisciplinares adequados com base no quadro clínico da paciente.
 Considere SUS e rede privada. Justifique cada encaminhamento. Priorize por urgência clínica.
 Responda sempre em português brasileiro.
+
+{regras_seguranca}
 
 Perfil clínico da paciente:
 {contexto_paciente}
@@ -31,6 +36,8 @@ Encaminhamentos:"""
 PROMPT_ORIENTACOES_POS_CONSULTA = PromptTemplate.from_template(
     """Você é uma médica ginecologista gerando orientações personalizadas para a paciente ao final da consulta.
 Use linguagem clara, acessível e empática. Seja específica e prática. Responda em português brasileiro.
+
+{regras_seguranca}
 
 Paciente: {nome_paciente}
 Diagnóstico / Motivo da consulta: {diagnostico}
@@ -70,13 +77,22 @@ def sugerir_encaminhamentos(
     llm = OllamaLLM(model=modelo, temperature=0.3)
     chain = PROMPT_ENCAMINHAMENTOS | llm | StrOutputParser()
 
-    return chain.invoke({
+    resposta_bruta = chain.invoke({
         "contexto_paciente": contexto_paciente,
         "queixas": queixas,
         "diagnosticos": diagnosticos,
         "exames_alterados": exames_alterados,
         "fatores_risco": fatores_risco,
+        "regras_seguranca": REGRAS_SEGURANCA_PROMPT,
     })
+    resposta, _ = processar_resposta_final(
+        resposta_bruta,
+        mensagem_usuario=queixas,
+        fluxo="encaminhamentos",
+        especialidade="multidisciplinar",
+        contexto_paciente=contexto_paciente,
+    )
+    return resposta
 
 
 def gerar_orientacoes_pos_consulta(
@@ -91,13 +107,21 @@ def gerar_orientacoes_pos_consulta(
     llm = OllamaLLM(model=modelo, temperature=0.4)
     chain = PROMPT_ORIENTACOES_POS_CONSULTA | llm | StrOutputParser()
 
-    return chain.invoke({
+    bruto = chain.invoke({
         "nome_paciente": nome_paciente,
         "diagnostico": diagnostico,
         "medicacoes": medicacoes,
         "procedimentos": procedimentos,
         "exames_solicitados": exames_solicitados,
+        "regras_seguranca": REGRAS_SEGURANCA_PROMPT,
     })
+    texto, _ = processar_resposta_final(
+        bruto,
+        mensagem_usuario=diagnostico,
+        fluxo="orientacoes_pos_consulta",
+        especialidade="ginecologia",
+    )
+    return texto
 
 
 def stream_encaminhamentos(
@@ -112,10 +136,18 @@ def stream_encaminhamentos(
     llm = OllamaLLM(model=modelo, temperature=0.3)
     chain = PROMPT_ENCAMINHAMENTOS | llm | StrOutputParser()
 
-    return chain.stream({
+    stream = chain.stream({
         "contexto_paciente": contexto_paciente,
         "queixas": queixas,
         "diagnosticos": diagnosticos,
         "exames_alterados": exames_alterados,
         "fatores_risco": fatores_risco,
+        "regras_seguranca": REGRAS_SEGURANCA_PROMPT,
     })
+    return stream_com_processamento(
+        stream,
+        mensagem_usuario=queixas,
+        fluxo="encaminhamentos",
+        especialidade="multidisciplinar",
+        contexto_paciente=contexto_paciente,
+    )

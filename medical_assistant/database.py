@@ -4,6 +4,7 @@ Camada de acesso a dados: configuração do banco SQLite e operações CRUD.
 
 from __future__ import annotations
 
+import unicodedata
 from contextlib import contextmanager
 from datetime import date
 from pathlib import Path
@@ -22,6 +23,7 @@ from .models import (
     ProtocoloMedico,
     TriagemViolencia,
 )
+from .security_protocols import criptografar_texto_vd, descriptografar_texto_vd
 
 # ─────────────────────────────────────────────
 # Configuração
@@ -248,14 +250,21 @@ def buscar_ciclos_menstruais(paciente_id: int, ultimos_n: int = 6) -> list[Ciclo
 # CRUD – Triagem de Violência
 # ─────────────────────────────────────────────
 
-def buscar_triagens_vd(paciente_id: int) -> list[TriagemViolencia]:
+def buscar_triagens_vd(paciente_id: int, descriptografar: bool = True) -> list[TriagemViolencia]:
     with get_session() as s:
-        return (
+        triagens = (
             s.query(TriagemViolencia)
             .filter(TriagemViolencia.paciente_id == paciente_id)
             .order_by(TriagemViolencia.data_triagem.desc())
             .all()
         )
+    if descriptografar:
+        for t in triagens:
+            if t.observacoes_confidenciais:
+                t.observacoes_confidenciais = descriptografar_texto_vd(t.observacoes_confidenciais)
+            if t.indicadores_identificados:
+                t.indicadores_identificados = descriptografar_texto_vd(t.indicadores_identificados)
+    return triagens
 
 
 def registrar_triagem_vd(
@@ -266,40 +275,75 @@ def registrar_triagem_vd(
     encaminhamentos: str = None,
     plano_seguranca: str = None,
     observacoes: str = None,
+    profissional_id: str = "sessao_streamlit",
 ) -> TriagemViolencia:
+    from .audit import registrar_log_violencia
+
+    indicadores_cifrado = criptografar_texto_vd(indicadores) if indicadores else None
+    observacoes_cifrado = criptografar_texto_vd(observacoes) if observacoes else None
+
     with get_session() as s:
         t = TriagemViolencia(
             paciente_id=paciente_id,
             data_triagem=date.today(),
             nivel_risco=nivel_risco,
-            indicadores_identificados=indicadores,
+            indicadores_identificados=indicadores_cifrado,
             protocolo_acionado=protocolo_acionado,
             encaminhamentos_realizados=encaminhamentos,
             plano_seguranca=plano_seguranca,
-            observacoes_confidenciais=observacoes,
+            observacoes_confidenciais=observacoes_cifrado,
         )
         s.add(t)
         s.flush()
         s.expunge(t)
-        return t
+
+    registrar_log_violencia(
+        paciente_id=paciente_id,
+        acao="escrita_triagem",
+        profissional_id=profissional_id,
+        detalhes={"nivel_risco": nivel_risco, "protocolo_acionado": protocolo_acionado},
+    )
+    if nivel_risco in ("alto", "critico"):
+        from .audit import registrar_alerta_seguranca
+
+        registrar_alerta_seguranca(
+            paciente_id=paciente_id,
+            nivel=nivel_risco,
+            motivo=f"Triagem VD registrada com risco {nivel_risco}",
+            protocolo_emergencia="VD_RISCO_ALTO" if nivel_risco == "alto" else "VD_RISCO_CRITICO",
+        )
+    return t
 
 
 # ─────────────────────────────────────────────
 # CRUD – Medicamentos
 # ─────────────────────────────────────────────
 
+def _normalizar(texto: str | None) -> str:
+    """Remove acentos e converte para minúsculas, para busca insensível a Unicode."""
+    if not texto:
+        return ""
+    decomposto = unicodedata.normalize("NFD", texto)
+    sem_acento = "".join(c for c in decomposto if unicodedata.category(c) != "Mn")
+    return sem_acento.casefold()
+
+
 def buscar_medicamento(termo: str) -> list[Medicamento]:
-    """Busca por nome comercial ou princípio ativo (case-insensitive)."""
-    like = f"%{termo}%"
+    """Busca em nome comercial, princípio ativo, categoria e indicações.
+    Insensível a maiúsculas/minúsculas e acentos (ex.: 'ácido fólico' == 'acido folico').
+    A filtragem é feita em Python pois o ILIKE do SQLite só normaliza ASCII."""
+    termo_normalizado = _normalizar(termo)
+    if not termo_normalizado:
+        return []
     with get_session() as s:
-        return (
-            s.query(Medicamento)
-            .filter(
-                (Medicamento.nome_comercial.ilike(like))
-                | (Medicamento.principio_ativo.ilike(like))
-            )
-            .all()
-        )
+        candidatos = s.query(Medicamento).all()
+    return [
+        m for m in candidatos
+        if termo_normalizado in _normalizar(m.nome_comercial)
+        or termo_normalizado in _normalizar(m.principio_ativo)
+        or termo_normalizado in _normalizar(m.categoria)
+        or termo_normalizado in _normalizar(m.indicacoes)
+    ]
 
 
 # ─────────────────────────────────────────────
@@ -307,15 +351,27 @@ def buscar_medicamento(termo: str) -> list[Medicamento]:
 # ─────────────────────────────────────────────
 
 def buscar_protocolos(termo: str = None, categoria: str = None) -> list[ProtocoloMedico]:
+    """Busca protocolos por termo e/ou categoria. Insensível a acentos."""
     with get_session() as s:
-        q = s.query(ProtocoloMedico)
-        if categoria:
-            q = q.filter(ProtocoloMedico.categoria.ilike(f"%{categoria}%"))
-        if termo:
-            like = f"%{termo}%"
-            q = q.filter(
-                (ProtocoloMedico.titulo.ilike(like))
-                | (ProtocoloMedico.palavras_chave.ilike(like))
-                | (ProtocoloMedico.conteudo.ilike(like))
+        candidatos = s.query(ProtocoloMedico).all()
+
+    categoria_norm = _normalizar(categoria) if categoria else ""
+    termo_norm = _normalizar(termo) if termo else ""
+
+    if not categoria_norm and not termo_norm:
+        return candidatos
+
+    resultado = []
+    for p in candidatos:
+        if categoria_norm and categoria_norm not in _normalizar(p.categoria):
+            continue
+        if termo_norm:
+            casa = (
+                termo_norm in _normalizar(p.titulo)
+                or termo_norm in _normalizar(p.palavras_chave)
+                or termo_norm in _normalizar(p.conteudo)
             )
-        return q.all()
+            if not casa:
+                continue
+        resultado.append(p)
+    return resultado

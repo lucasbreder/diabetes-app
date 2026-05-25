@@ -419,6 +419,50 @@ MEDICAMENTOS = [
         "interacoes_importantes": "Absorção sistêmica mínima; raramente interage com outros medicamentos",
         "observacoes": "Baixa absorção sistêmica; pode ser usado mesmo em sobreviventes de câncer de mama em alguns casos (avaliar com oncologista). Melhora significativamente a qualidade de vida.",
     },
+    {
+        "nome_comercial": "Yasmin / Yaz",
+        "principio_ativo": "Drospirenona 3mg + etinilestradiol 20-30mcg",
+        "categoria": "anticoncepcional_oral_combinado",
+        "indicacoes": "Anticoncepção, acne moderada, TDPM (Yaz), retenção hídrica associada ao ciclo, SOP com componente androgênico",
+        "contraindicacoes": "Tromboembolismo (TVP/TEP), trombofilia, migrânea com aura, tabagismo >35 anos, HAS grave, hepatopatia, câncer hormônio-dependente, insuficiência renal/adrenal",
+        "seguro_gestacao": False,
+        "seguro_amamentacao": False,
+        "interacoes_importantes": "Indutores enzimáticos (rifampicina, fenitoína, carbamazepina, erva-de-São-João) reduzem eficácia; cuidado com poupadores de potássio (drospirenona tem ação antimineralocorticoide)",
+        "observacoes": "Drospirenona é análogo da espironolactona — efeito antiandrogênico e antimineralocorticoide. Yaz tem regime 24/4 (menos sintomas de privação). Risco trombótico ligeiramente superior aos COCs com levonorgestrel.",
+    },
+    {
+        "nome_comercial": "Cerazette / Juliet",
+        "principio_ativo": "Desogestrel 75mcg (minipílula)",
+        "categoria": "anticoncepcional_progestogenio_isolado",
+        "indicacoes": "Anticoncepção durante lactação, mulheres com contraindicação a estrogênio (tabagistas >35 anos, enxaqueca com aura, pós-parto imediato, TVP prévia)",
+        "contraindicacoes": "Câncer de mama atual, hepatopatia grave, sangramento vaginal não diagnosticado, gravidez confirmada",
+        "seguro_gestacao": False,
+        "seguro_amamentacao": True,
+        "interacoes_importantes": "Indutores do CYP3A4 (rifampicina, fenitoína, carbamazepina, modafinila) reduzem eficácia; antirretrovirais podem alterar metabolismo",
+        "observacoes": "Inibe ovulação (diferente da minipílula clássica de noretisterona). Janela de tomada de 12h. Pode iniciar imediatamente após o parto. Padrão de sangramento irregular é comum nos primeiros 3 meses.",
+    },
+    {
+        "nome_comercial": "Implanon NXT",
+        "principio_ativo": "Etonogestrel 68mg (implante subdérmico)",
+        "categoria": "contraceptivo_implante_subdermico",
+        "indicacoes": "Anticoncepção de longa duração (LARC) por 3 anos, mulheres com contraindicação a estrogênio, adolescentes (recomendação FEBRASGO/OMS)",
+        "contraindicacoes": "Gravidez, câncer de mama atual, hepatopatia grave, sangramento vaginal não diagnosticado, TVP/TEP ativa",
+        "seguro_gestacao": False,
+        "seguro_amamentacao": True,
+        "interacoes_importantes": "Rifampicina, anticonvulsivantes (fenitoína, carbamazepina, topiramato), erva-de-São-João — reduzem eficácia significativamente",
+        "observacoes": "Eficácia >99% (índice de Pearl 0,05). Inserção subdérmica no braço não-dominante por profissional treinado. Fertilidade retorna em poucos dias após remoção. Sangramento irregular é o efeito colateral mais comum e principal causa de descontinuação.",
+    },
+    {
+        "nome_comercial": "Ácido Fólico 5mg (Folacin / Endofolin)",
+        "principio_ativo": "Ácido fólico 5mg (acido folico, folato, vitamina B9, folacina)",
+        "categoria": "suplemento_pre_concepcional",
+        "indicacoes": "Prevenção de defeitos do tubo neural (espinha bífida, anencefalia), suplementação pré-concepcional (3 meses antes da gestação até 12 semanas), anemia megaloblástica, uso de antiepilépticos",
+        "contraindicacoes": "Anemia perniciosa não tratada (mascara deficiência de B12); hipersensibilidade ao princípio ativo",
+        "seguro_gestacao": True,
+        "seguro_amamentacao": True,
+        "interacoes_importantes": "Metotrexato (antagonista), fenitoína (reduz níveis séricos do anticonvulsivante), sulfassalazina, trimetoprima",
+        "observacoes": "Dose padrão pré-concepcional: 0,4-0,8mg/dia. Dose 5mg/dia para mulheres com filho prévio com DTN, uso de antiepilépticos, diabetes, obesidade ou anemia falciforme. Iniciar pelo menos 1 mês antes da concepção planejada.",
+    },
 ]
 
 # ─────────────────────────────────────────────
@@ -566,25 +610,57 @@ PACIENTES_DEMO = [
 # Função de Seed
 # ─────────────────────────────────────────────
 
+def _sincronizar_medicamentos(session) -> tuple[int, int]:
+    """Insere medicamentos novos e atualiza os existentes (idempotente por nome_comercial).
+    Retorna (novos, atualizados)."""
+    indice = {
+        m.nome_comercial: m
+        for m in session.query(Medicamento).all()
+    }
+    novos = 0
+    atualizados = 0
+    for m in MEDICAMENTOS:
+        existente = indice.get(m["nome_comercial"])
+        if existente is None:
+            session.add(Medicamento(**m))
+            novos += 1
+            continue
+        mudou = False
+        for campo, valor in m.items():
+            if getattr(existente, campo) != valor:
+                setattr(existente, campo, valor)
+                mudou = True
+        if mudou:
+            atualizados += 1
+    return novos, atualizados
+
+
 def popular_banco() -> None:
-    """Popula o banco com protocolos, medicamentos e pacientes demo."""
+    """Popula o banco com protocolos, medicamentos e pacientes demo.
+
+    O seed de medicamentos é idempotente: novos itens adicionados ao MEDICAMENTOS
+    são inseridos mesmo em bancos já populados.
+    """
     init_db()
 
     with get_session() as s:
-        # Verifica se já foi populado
-        if s.query(ProtocoloMedico).count() > 0:
-            print("Banco já populado. Pulando seed.")
+        ja_populado = s.query(ProtocoloMedico).count() > 0
+
+        if ja_populado:
+            novos, atualizados = _sincronizar_medicamentos(s)
+            if novos or atualizados:
+                print(
+                    f"Banco já populado: {novos} novo(s) e {atualizados} atualizado(s) medicamento(s)."
+                )
+            else:
+                print("Banco já populado. Pulando seed.")
             return
 
-        # Protocolos
         for p in PROTOCOLOS:
             s.add(ProtocoloMedico(**p))
 
-        # Medicamentos
-        for m in MEDICAMENTOS:
-            s.add(Medicamento(**m))
+        _sincronizar_medicamentos(s)
 
-        # Pacientes demo
         for pd in PACIENTES_DEMO:
             pac = Paciente(
                 nome=pd["nome"],
