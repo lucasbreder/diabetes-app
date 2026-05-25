@@ -9,7 +9,8 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import PromptTemplate
 from langchain_ollama import OllamaLLM
 
-from ..safety import REGRAS_SEGURANCA_PROMPT, aplicar_guardrails_resposta, stream_com_guardrails
+from ..safety import REGRAS_SEGURANCA_PROMPT
+from ..validation_pipeline import processar_resposta_final, stream_com_processamento
 
 PROMPT_ENCAMINHAMENTOS = PromptTemplate.from_template(
     """Você é uma coordenadora de cuidados clínicos especializada na rede de saúde da mulher no Brasil.
@@ -76,7 +77,7 @@ def sugerir_encaminhamentos(
     llm = OllamaLLM(model=modelo, temperature=0.3)
     chain = PROMPT_ENCAMINHAMENTOS | llm | StrOutputParser()
 
-    resposta = chain.invoke({
+    resposta_bruta = chain.invoke({
         "contexto_paciente": contexto_paciente,
         "queixas": queixas,
         "diagnosticos": diagnosticos,
@@ -84,7 +85,14 @@ def sugerir_encaminhamentos(
         "fatores_risco": fatores_risco,
         "regras_seguranca": REGRAS_SEGURANCA_PROMPT,
     })
-    return aplicar_guardrails_resposta(resposta, queixas)
+    resposta, _ = processar_resposta_final(
+        resposta_bruta,
+        mensagem_usuario=queixas,
+        fluxo="encaminhamentos",
+        especialidade="multidisciplinar",
+        contexto_paciente=contexto_paciente,
+    )
+    return resposta
 
 
 def gerar_orientacoes_pos_consulta(
@@ -99,14 +107,21 @@ def gerar_orientacoes_pos_consulta(
     llm = OllamaLLM(model=modelo, temperature=0.4)
     chain = PROMPT_ORIENTACOES_POS_CONSULTA | llm | StrOutputParser()
 
-    return aplicar_guardrails_resposta(chain.invoke({
+    bruto = chain.invoke({
         "nome_paciente": nome_paciente,
         "diagnostico": diagnostico,
         "medicacoes": medicacoes,
         "procedimentos": procedimentos,
         "exames_solicitados": exames_solicitados,
         "regras_seguranca": REGRAS_SEGURANCA_PROMPT,
-    }), diagnostico)
+    })
+    texto, _ = processar_resposta_final(
+        bruto,
+        mensagem_usuario=diagnostico,
+        fluxo="orientacoes_pos_consulta",
+        especialidade="ginecologia",
+    )
+    return texto
 
 
 def stream_encaminhamentos(
@@ -129,4 +144,10 @@ def stream_encaminhamentos(
         "fatores_risco": fatores_risco,
         "regras_seguranca": REGRAS_SEGURANCA_PROMPT,
     })
-    return stream_com_guardrails(stream, queixas)
+    return stream_com_processamento(
+        stream,
+        mensagem_usuario=queixas,
+        fluxo="encaminhamentos",
+        especialidade="multidisciplinar",
+        contexto_paciente=contexto_paciente,
+    )

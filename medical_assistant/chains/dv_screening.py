@@ -14,7 +14,8 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import PromptTemplate
 from langchain_ollama import OllamaLLM
 
-from ..safety import REGRAS_SEGURANCA_PROMPT, aplicar_guardrails_resposta, stream_com_guardrails
+from ..safety import REGRAS_SEGURANCA_PROMPT
+from ..validation_pipeline import processar_resposta_final, stream_com_processamento
 
 # Instrumento WAST adaptado ao português (BR) – 8 itens
 PERGUNTAS_WAST = [
@@ -122,17 +123,21 @@ def executar_triagem_violencia(
     llm = OllamaLLM(model=modelo, temperature=0.2)
 
     chain_relatorio = PROMPT_TRIAGEM_VD | llm | StrOutputParser()
-    relatorio = aplicar_guardrails_resposta(
-        chain_relatorio.invoke({
-            "nome_paciente": nome_paciente,
-            "pontuacao": pontuacao,
-            "nivel_risco": nivel_risco.upper(),
-            "indicadores_positivos": "\n".join(indicadores_positivos) if indicadores_positivos else "Nenhum indicador positivo",
-            "sinais_fisicos": ", ".join(sinais_fisicos) if sinais_fisicos else "Nenhum observado",
-            "observacoes": observacoes or "Sem observações adicionais",
-            "regras_seguranca": REGRAS_SEGURANCA_PROMPT,
-        }),
-        "violência doméstica triagem WAST",
+    relatorio_bruto = chain_relatorio.invoke({
+        "nome_paciente": nome_paciente,
+        "pontuacao": pontuacao,
+        "nivel_risco": nivel_risco.upper(),
+        "indicadores_positivos": "\n".join(indicadores_positivos) if indicadores_positivos else "Nenhum indicador positivo",
+        "sinais_fisicos": ", ".join(sinais_fisicos) if sinais_fisicos else "Nenhum observado",
+        "observacoes": observacoes or "Sem observações adicionais",
+        "regras_seguranca": REGRAS_SEGURANCA_PROMPT,
+    })
+    relatorio, _ = processar_resposta_final(
+        relatorio_bruto,
+        mensagem_usuario="violência doméstica triagem WAST",
+        fluxo="vd",
+        especialidade="violencia_domestica",
+        nivel_risco_vd=nivel_risco,
     )
 
     chain_abordagem = PROMPT_ABORDAGEM_PACIENTE | llm | StrOutputParser()
@@ -179,4 +184,10 @@ def stream_triagem_violencia(
         "observacoes": observacoes or "Sem observações adicionais",
         "regras_seguranca": REGRAS_SEGURANCA_PROMPT,
     })
-    return nivel_risco, stream_com_guardrails(stream, "violência doméstica triagem WAST")
+    return nivel_risco, stream_com_processamento(
+        stream,
+        mensagem_usuario="violência doméstica triagem WAST",
+        fluxo="vd",
+        especialidade="violencia_domestica",
+        nivel_risco_vd=nivel_risco,
+    )

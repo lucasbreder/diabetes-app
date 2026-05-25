@@ -9,7 +9,8 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import PromptTemplate
 from langchain_ollama import OllamaLLM
 
-from ..safety import REGRAS_SEGURANCA_PROMPT, aplicar_guardrails_resposta, stream_com_guardrails
+from ..safety import REGRAS_SEGURANCA_PROMPT
+from ..validation_pipeline import processar_resposta_final, stream_com_processamento
 
 PROMPT_TRIAGEM = PromptTemplate.from_template(
     """Você é uma enfermeira obstetra especializada em triagem clínica de saúde da mulher.
@@ -72,8 +73,15 @@ def executar_triagem_sintomas(
         "regras_seguranca": REGRAS_SEGURANCA_PROMPT,
     }
     texto_sintomas = entrada["sintomas"]
-    resposta = chain.invoke(entrada)
-    return aplicar_guardrails_resposta(resposta, texto_sintomas)
+    resposta_bruta = chain.invoke(entrada)
+    resposta, _ = processar_resposta_final(
+        resposta_bruta,
+        mensagem_usuario=texto_sintomas,
+        fluxo="triagem",
+        especialidade="ginecologia",
+        contexto_paciente=contexto_paciente,
+    )
+    return resposta
 
 
 def stream_triagem_sintomas(
@@ -97,4 +105,10 @@ def stream_triagem_sintomas(
         "contexto_paciente": contexto_paciente or "Sem dados adicionais",
         "regras_seguranca": REGRAS_SEGURANCA_PROMPT,
     })
-    return stream_com_guardrails(stream, texto_sintomas)
+    return stream_com_processamento(
+        stream,
+        mensagem_usuario=texto_sintomas,
+        fluxo="triagem",
+        especialidade="ginecologia",
+        contexto_paciente=contexto_paciente,
+    )

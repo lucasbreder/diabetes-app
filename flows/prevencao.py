@@ -85,19 +85,32 @@ PROTOCOLOS_RASTREAMENTO = {
 }
 
 
-def analisar_historico(state: EstadoPrevencao) -> dict:
-    """Nó 1 — Analisa histórico e identifica fatores de risco preventivos."""
-    prompt = (
-        f"Analise o perfil preventivo da paciente.\n"
-        f"Paciente: {state['nome_paciente']}, {state['idade']} anos\n"
+def _resumo_paciente_prevencao(state: EstadoPrevencao) -> str:
+    return (
+        f"Paciente: {state.get('nome_paciente', 'N/I')} | Idade: {state.get('idade', 'N/I')}\n"
         f"Histórico pessoal: {', '.join(state.get('historico_pessoal', [])) or 'Nenhum'}\n"
         f"Histórico familiar: {', '.join(state.get('historico_familiar', [])) or 'Nenhum'}\n"
         f"Comorbidades: {', '.join(state.get('comorbidades', [])) or 'Nenhuma'}\n"
-        f"Hábitos: {state.get('habitos', {})}\n"
+        f"Último papanicolau: {state.get('ultimo_papanicolau', 'N/A')} | "
+        f"Última mamografia: {state.get('ultima_mamografia', 'N/A')}\n"
+        f"Hábitos: {state.get('habitos', {})}"
+    )
+
+
+def analisar_historico(state: EstadoPrevencao) -> dict:
+    """Nó 1 — Analisa histórico e identifica fatores de risco preventivos."""
+    resumo = _resumo_paciente_prevencao(state)
+    prompt = (
+        f"Analise o perfil preventivo da paciente.\n{resumo}\n"
         f"Identifique fatores de risco e rastreamentos prioritários. Português brasileiro."
     )
-    analise = consultar_llm(prompt)
-    # Guardamos a análise nas orientações temporariamente
+    analise = consultar_llm(
+        prompt,
+        fluxo="prevencao",
+        especialidade="prevencao",
+        contexto_paciente=resumo,
+        incluir_explicabilidade=False,
+    )
     return {"orientacoes_preventivas": analise}
 
 
@@ -154,20 +167,21 @@ def gerar_orientacoes_preventivas(state: EstadoPrevencao) -> dict:
     """Nó 3 — Orientações preventivas personalizadas via LLM."""
     exames = state.get("exames_devidos", [])
     exames_txt = "; ".join(e["exame"] for e in exames) or "Nenhum exame pendente"
-    habitos = state.get("habitos", {})
+    resumo = _resumo_paciente_prevencao(state)
 
     prompt = (
-        f"Gere orientações preventivas personalizadas.\n"
-        f"Paciente: {state['nome_paciente']}, {state['idade']} anos\n"
-        f"Exames pendentes: {exames_txt}\n"
-        f"Comorbidades: {', '.join(state.get('comorbidades', []))}\n"
-        f"Tabagismo: {habitos.get('tabagismo', 'N/A')}\n"
-        f"Atividade física: {habitos.get('atividade_fisica', 'N/A')}\n"
-        f"Alimentação: {habitos.get('alimentacao', 'N/A')}\n\n"
+        f"Gere orientações preventivas personalizadas.\n{resumo}\n"
+        f"Exames pendentes: {exames_txt}\n\n"
         f"Inclua: orientações sobre rastreamento, hábitos saudáveis, vacinação. "
         f"Seja empática e acolhedora. Português brasileiro. Máximo 15 linhas."
     )
-    return {"orientacoes_preventivas": consultar_llm(prompt)}
+    return {"orientacoes_preventivas": consultar_llm(
+        prompt,
+        fluxo="prevencao",
+        especialidade="prevencao",
+        contexto_paciente=resumo,
+        incluir_explicabilidade=True,
+    )}
 
 
 def agendar_automaticamente(state: EstadoPrevencao) -> dict:

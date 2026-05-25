@@ -25,7 +25,8 @@ from .database import (
     buscar_triagens_vd,
     init_db,
 )
-from .safety import REGRAS_SEGURANCA_PROMPT, aplicar_guardrails_resposta
+from .safety import REGRAS_SEGURANCA_PROMPT
+from .validation_pipeline import processar_resposta_final
 from .seed_data import popular_banco
 
 # ─────────────────────────────────────────────
@@ -176,14 +177,22 @@ class AssistenteMedico:
         )
         protocolos = _buscar_protocolos_relevantes(mensagem)
 
-        resposta = self._chain.invoke({
+        resposta_bruta = self._chain.invoke({
             "input": mensagem,
             "chat_history": _formatar_historico(self.historico),
             "contexto_paciente": contexto,
             "protocolos_contexto": protocolos,
             "regras_seguranca": REGRAS_SEGURANCA_PROMPT,
         })
-        resposta = aplicar_guardrails_resposta(resposta, mensagem)
+        resposta, _ = processar_resposta_final(
+            resposta_bruta,
+            mensagem_usuario=mensagem,
+            paciente_id=self.paciente_id,
+            fluxo="chat",
+            especialidade="ginecologia",
+            protocolos_contexto=protocolos,
+            contexto_paciente=contexto,
+        )
 
         self._atualizar_historico(mensagem, resposta)
         return resposta
@@ -208,10 +217,17 @@ class AssistenteMedico:
             resposta_completa += chunk
             yield chunk
 
-        resposta_final = aplicar_guardrails_resposta(resposta_completa, mensagem)
-        if resposta_final != resposta_completa:
-            sufixo = resposta_final[len(resposta_completa):]
-            yield sufixo
+        resposta_final, _ = processar_resposta_final(
+            resposta_completa,
+            mensagem_usuario=mensagem,
+            paciente_id=self.paciente_id,
+            fluxo="chat",
+            especialidade="ginecologia",
+            protocolos_contexto=protocolos,
+            contexto_paciente=contexto,
+        )
+        if len(resposta_final) > len(resposta_completa):
+            yield resposta_final[len(resposta_completa):]
             resposta_completa = resposta_final
 
         self._atualizar_historico(mensagem, resposta_completa)

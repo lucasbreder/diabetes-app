@@ -12,7 +12,8 @@ from typing import Optional
 
 import ollama
 
-from medical_assistant.safety import REGRAS_SEGURANCA_PROMPT, aplicar_guardrails_resposta
+from medical_assistant.safety import REGRAS_SEGURANCA_PROMPT
+from medical_assistant.validation_pipeline import processar_resposta_final
 
 # Preferência de modelos (primeiro encontrado no Ollama local é usado)
 MODELO_PADRAO = os.environ.get("OLLAMA_MODEL", "llama3.2:1b")
@@ -57,6 +58,14 @@ def consultar_llm(
     modelo: str = MODELO_PADRAO,
     system_prompt: Optional[str] = None,
     contexto_guardrail: str = "",
+    *,
+    fluxo: str = "langgraph",
+    especialidade: str = "ginecologia",
+    contexto_paciente: str = "",
+    protocolos_contexto: str = "",
+    nivel_risco_vd: Optional[str] = None,
+    paciente_id: Optional[int] = None,
+    incluir_explicabilidade: bool = True,
 ) -> str:
     """
     Envia um prompt ao LLM via Ollama e retorna a resposta como string.
@@ -66,6 +75,13 @@ def consultar_llm(
         modelo: Nome do modelo Ollama a utilizar.
         system_prompt: Prompt de sistema opcional para definir o papel da IA.
         contexto_guardrail: Texto da pergunta/caso para pós-validação (item 4).
+        fluxo: Identificador do fluxo ("vd", "obstetrico", "triagem", "prevencao", ...).
+        especialidade: Especialidade clínica do fluxo.
+        contexto_paciente: Resumo clínico da paciente (para explicabilidade).
+        protocolos_contexto: Texto com protocolos relevantes (será auto-buscado se vazio).
+        nivel_risco_vd: Nível de risco quando o fluxo é VD.
+        paciente_id: ID da paciente (para auditoria).
+        incluir_explicabilidade: Se True, adiciona bloco de explicabilidade ao retorno.
 
     Returns:
         A resposta do modelo como string, ou mensagem de fallback em caso de erro.
@@ -85,7 +101,18 @@ def consultar_llm(
     try:
         response = ollama.chat(model=modelo_efetivo, messages=messages)
         texto = response.message.content
-        return aplicar_guardrails_resposta(texto, contexto_guardrail or prompt)
+        resposta, _ = processar_resposta_final(
+            texto,
+            mensagem_usuario=contexto_guardrail or prompt,
+            paciente_id=paciente_id,
+            fluxo=fluxo,
+            especialidade=especialidade,
+            contexto_paciente=contexto_paciente,
+            protocolos_contexto=protocolos_contexto,
+            nivel_risco_vd=nivel_risco_vd,
+            incluir_explicabilidade=incluir_explicabilidade,
+        )
+        return resposta
     except Exception as e:
         instalados = _listar_modelos_locais()
         dica = (

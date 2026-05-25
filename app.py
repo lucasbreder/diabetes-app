@@ -19,7 +19,7 @@ aplicar_estilos_globais()
 st.markdown("""
 <div class="main-header">
     <h1>🏥 Sistema Inteligente de Saúde da Mulher</h1>
-    <p>Triagem Ginecológica • Acompanhamento Obstétrico • Detecção de Violência • Prevenção</p>
+    <p>Triagem Ginecológica • Acompanhamento Obstétrico • Detecção de Violência • Prevenção • Auditoria</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -72,10 +72,20 @@ with col5:
         st.markdown("<br>", unsafe_allow_html=True)
         st.page_link("pages/assistente_medico.py", label="Acessar Assistente", icon="➡️")
 
+with col6:
+    with st.container(border=True):
+        st.markdown("<h3 style='color: #b45309;'>📜 Auditoria e Logs</h3>", unsafe_allow_html=True)
+        st.markdown(
+            "Rastreamento de interações, acessos sensíveis, logs de violência doméstica "
+            "e relatórios por especialidade."
+        )
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.page_link("pages/5_📜_Auditoria.py", label="Acessar Auditoria", icon="➡️")
+
 st.divider()
 
 st.markdown("""
 <div style="text-align: center; color: #6b7280; padding: 2rem;">
-    <p>Utilize as abas acima para navegar entre as diferentes funcionalidades de saúde integradas com IA (LangGraph + Ollama).</p>
+    <p>Navegue pelos fluxos clínicos, assistente e auditoria — integrados com IA (LangChain/LangGraph + Ollama).</p>
 </div>
 """, unsafe_allow_html=True)

@@ -131,6 +131,8 @@ from medical_assistant.chains.dv_screening import (
 )
 from medical_assistant.chains.referrals import stream_encaminhamentos
 from medical_assistant.pipeline import AssistenteMedico
+from medical_assistant.audit import listar_alertas_pendentes, registrar_acesso_sensivel
+from medical_assistant.security_protocols import verificar_identidade_profissional
 
 
 # ─────────────────────────────────────────────
@@ -143,6 +145,8 @@ def _init_state():
         "assistente": None,
         "mensagens_chat": [],
         "modelo": "llama3:latest",
+        "identidade_verificada": False,
+        "profissional_id": "anonimo",
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -198,8 +202,34 @@ with st.sidebar:
         st.session_state.assistente = None  # força recriação
 
     st.divider()
+    st.subheader("🔐 Verificação de identidade")
+    st.caption("Obrigatória para triagem VD e dados sensíveis.")
+    pin = st.text_input("PIN do profissional:", type="password", key="pin_profissional")
+    if st.button("Validar acesso", use_container_width=True):
+        if verificar_identidade_profissional(pin):
+            st.session_state.identidade_verificada = True
+            st.session_state.profissional_id = "profissional_autenticado"
+            st.success("Identidade verificada.")
+        else:
+            st.session_state.identidade_verificada = False
+            st.error("PIN inválido.")
+    if st.session_state.identidade_verificada:
+        st.success("✅ Sessão autenticada")
+    else:
+        st.warning("Áreas sensíveis bloqueadas")
+
+    alertas_seg = listar_alertas_pendentes(limite=5)
+    if alertas_seg:
+        st.divider()
+        st.subheader("🚨 Alertas de segurança")
+        for a in alertas_seg:
+            st.error(f"**{a.nivel.upper()}** — {a.motivo[:80]}…")
+
+    st.page_link("pages/5_📜_Auditoria.py", label="📜 Auditoria completa", icon="📊")
+
+    st.divider()
     st.caption("⚠️ Este sistema auxilia profissionais de saúde e **não substitui** o julgamento clínico.")
-    st.caption("🔒 Todas as informações são confidenciais.")
+    st.caption("🔒 Dados de VD criptografados em repouso (Fernet).")
 
     if st.button("🗑️ Limpar conversa", use_container_width=True):
         st.session_state.mensagens_chat = []
@@ -473,126 +503,154 @@ with tab_alertas:
 
 with tab_vd:
     st.markdown('<div class="confidential-banner">🔒 ÁREA CONFIDENCIAL – Acesso restrito ao profissional de saúde responsável</div>', unsafe_allow_html=True)
+
+    acesso_vd = st.session_state.identidade_verificada
+
+    if not acesso_vd:
+        st.warning(
+            "Verifique sua identidade na barra lateral (PIN do profissional) "
+            "para acessar a triagem de violência doméstica."
+        )
+    else:
+        if pac_id:
+            registrar_acesso_sensivel(
+                "violencia_domestica",
+                "leitura_aba_vd",
+                paciente_id=pac_id,
+                profissional_id=st.session_state.profissional_id,
+            )
+
     st.subheader("Triagem de Violência Doméstica (WAST adaptado)")
 
-    st.info(
-        "**Aplicação do instrumento WAST** (Woman Abuse Screening Tool) – 8 perguntas.\n\n"
-        "Conduzir em ambiente privativo, **sem acompanhante presente**.\n"
-        "A notificação compulsória ao SINAN é **obrigatória** quando confirmada violência (Lei 11.340/2006)."
-    )
-
-    nome_para_relatorio = ""
-    if pac_id:
-        p = buscar_paciente(pac_id)
-        nome_para_relatorio = p.nome if p else f"Paciente #{pac_id}"
-    else:
-        nome_para_relatorio = st.text_input("Nome da paciente:", placeholder="Informe o nome para o relatório")
-
-    st.markdown("### Perguntas da Triagem")
-    st.caption("Selecione a resposta para cada pergunta com base na entrevista com a paciente.")
-
-    pontuacoes = []
-    opcoes_resposta = {"Não": 0, "Às vezes": 1, "Sim": 2}
-
-    for i, pergunta in enumerate(PERGUNTAS_WAST):
-        resposta = st.radio(
-            f"**Q{i+1}.** {pergunta}",
-            options=list(opcoes_resposta.keys()),
-            horizontal=True,
-            key=f"wast_q{i}",
+    if acesso_vd:
+        st.info(
+            "**Aplicação do instrumento WAST** (Woman Abuse Screening Tool) – 8 perguntas.\n\n"
+            "Conduzir em ambiente privativo, **sem acompanhante presente**.\n"
+            "A notificação compulsória ao SINAN é **obrigatória** quando confirmada violência (Lei 11.340/2006)."
         )
-        pontuacoes.append(opcoes_resposta[resposta])
 
-    total_wast, nivel = calcular_risco_wast(pontuacoes)
+    if not acesso_vd:
+        st.caption("Formulário WAST disponível após autenticação.")
+    else:
+        if pac_id:
+            p = buscar_paciente(pac_id)
+            nome_para_relatorio = p.nome if p else f"Paciente #{pac_id}"
+        else:
+            nome_para_relatorio = st.text_input(
+                "Nome da paciente:", placeholder="Informe o nome para o relatório"
+            )
 
-    cores_nivel = {"baixo": "🟢", "moderado": "🟡", "alto": "🟠", "critico": "🔴"}
-    st.markdown(f"**Pontuação atual:** {total_wast}/16 &nbsp; | &nbsp; Risco: {cores_nivel.get(nivel, '')} **{nivel.upper()}**")
+        st.markdown("### Perguntas da Triagem")
+        st.caption("Selecione a resposta para cada pergunta com base na entrevista com a paciente.")
 
-    sinais_fisicos_texto = st.text_area(
-        "Sinais físicos observados (opcional):",
-        placeholder="Hematomas, lacerações, cicatrizes suspeitas, etc.",
-        height=80,
-    )
-    obs_clinicas = st.text_area(
-        "Observações clínicas confidenciais:",
-        height=80,
-    )
+        pontuacoes = []
+        opcoes_resposta = {"Não": 0, "Às vezes": 1, "Sim": 2}
 
-    col_btn1, col_btn2 = st.columns(2)
+        for i, pergunta in enumerate(PERGUNTAS_WAST):
+            resposta = st.radio(
+                f"**Q{i+1}.** {pergunta}",
+                options=list(opcoes_resposta.keys()),
+                horizontal=True,
+                key=f"wast_q{i}",
+            )
+            pontuacoes.append(opcoes_resposta[resposta])
 
-    with col_btn1:
-        if st.button("📋 Gerar Relatório Confidencial", type="primary", use_container_width=True):
-            if not nome_para_relatorio:
-                st.warning("Informe o nome da paciente.")
-            else:
-                sinais = [s.strip() for s in sinais_fisicos_texto.splitlines() if s.strip()]
-                st.divider()
+        total_wast, nivel = calcular_risco_wast(pontuacoes)
 
-                nivel_resultado, stream = stream_triagem_violencia(
-                    nome_paciente=nome_para_relatorio,
-                    pontuacoes_wast=pontuacoes,
-                    sinais_fisicos=sinais if sinais else None,
-                    observacoes=obs_clinicas,
-                    modelo=st.session_state.modelo,
-                )
+        cores_nivel = {"baixo": "🟢", "moderado": "🟡", "alto": "🟠", "critico": "🔴"}
+        st.markdown(
+            f"**Pontuação atual:** {total_wast}/16 &nbsp; | &nbsp; "
+            f"Risco: {cores_nivel.get(nivel, '')} **{nivel.upper()}**"
+        )
 
-                cores_bg = {"baixo": "#f0fdf4", "moderado": "#fffbeb", "alto": "#fff7ed", "critico": "#fef2f2"}
-                st.markdown(
-                    f'<div style="background:{cores_bg.get(nivel_resultado, "#f8fafc")};'
-                    f'border-radius:10px;padding:1rem;border-left:4px solid #6366f1;">',
-                    unsafe_allow_html=True,
-                )
-                placeholder = st.empty()
-                texto_acum = ""
-                try:
-                    for chunk in stream:
-                        texto_acum += chunk
-                        placeholder.markdown(texto_acum + "▌")
-                    placeholder.markdown(texto_acum)
-                except Exception as e:
-                    st.error(f"Erro: {e}")
-                st.markdown("</div>", unsafe_allow_html=True)
+        sinais_fisicos_texto = st.text_area(
+            "Sinais físicos observados (opcional):",
+            placeholder="Hematomas, lacerações, cicatrizes suspeitas, etc.",
+            height=80,
+        )
+        obs_clinicas = st.text_area(
+            "Observações clínicas confidenciais:",
+            height=80,
+        )
 
-    with col_btn2:
-        if st.button("💾 Salvar Triagem no Prontuário", use_container_width=True):
-            if not pac_id:
-                st.warning("Selecione uma paciente para salvar o registro.")
-            else:
-                indicadores_salvos = []
-                opcoes_map = {0: "não", 1: "às vezes", 2: "sim"}
-                for i, (p, sc) in enumerate(zip(PERGUNTAS_WAST, pontuacoes)):
-                    if sc > 0:
-                        indicadores_salvos.append(f"Q{i+1}: {p} → {opcoes_map[sc]}")
+        col_btn1, col_btn2 = st.columns(2)
 
-                try:
-                    registrar_triagem_vd(
-                        paciente_id=pac_id,
-                        nivel_risco=nivel,
-                        indicadores=json.dumps(indicadores_salvos, ensure_ascii=False),
-                        protocolo_acionado=nivel in ("alto", "critico"),
+        with col_btn1:
+            if st.button("📋 Gerar Relatório Confidencial", type="primary", use_container_width=True):
+                if not nome_para_relatorio:
+                    st.warning("Informe o nome da paciente.")
+                else:
+                    sinais = [s.strip() for s in sinais_fisicos_texto.splitlines() if s.strip()]
+                    st.divider()
+
+                    nivel_resultado, stream = stream_triagem_violencia(
+                        nome_paciente=nome_para_relatorio,
+                        pontuacoes_wast=pontuacoes,
+                        sinais_fisicos=sinais if sinais else None,
                         observacoes=obs_clinicas,
+                        modelo=st.session_state.modelo,
                     )
-                    st.success("✅ Triagem salva no prontuário confidencial.")
-                except Exception as e:
-                    st.error(f"Erro ao salvar: {e}")
 
-    # Histórico de triagens anteriores
-    if pac_id:
-        hist_vd = buscar_triagens_vd(pac_id)
-        if hist_vd:
-            with st.expander("📂 Histórico de triagens anteriores"):
-                for t in hist_vd:
-                    cores_nivel_html = {
-                        "baixo": "#059669", "moderado": "#d97706",
-                        "alto": "#dc2626", "critico": "#7f1d1d"
+                    cores_bg = {
+                        "baixo": "#f0fdf4", "moderado": "#fffbeb",
+                        "alto": "#fff7ed", "critico": "#fef2f2",
                     }
-                    cor = cores_nivel_html.get(t.nivel_risco, "#6b7280")
                     st.markdown(
-                        f"**{t.data_triagem}** – "
-                        f'<span style="color:{cor};font-weight:600">{t.nivel_risco.upper()}</span>'
-                        f" | Protocolo acionado: {'Sim' if t.protocolo_acionado else 'Não'}",
+                        f'<div style="background:{cores_bg.get(nivel_resultado, "#f8fafc")};'
+                        f'border-radius:10px;padding:1rem;border-left:4px solid #6366f1;">',
                         unsafe_allow_html=True,
                     )
+                    placeholder = st.empty()
+                    texto_acum = ""
+                    try:
+                        for chunk in stream:
+                            texto_acum += chunk
+                            placeholder.markdown(texto_acum + "▌")
+                        placeholder.markdown(texto_acum)
+                    except Exception as e:
+                        st.error(f"Erro: {e}")
+                    st.markdown("</div>", unsafe_allow_html=True)
+
+        with col_btn2:
+            if st.button("💾 Salvar Triagem no Prontuário", use_container_width=True):
+                if not pac_id:
+                    st.warning("Selecione uma paciente para salvar o registro.")
+                else:
+                    indicadores_salvos = []
+                    opcoes_map = {0: "não", 1: "às vezes", 2: "sim"}
+                    for i, (p, sc) in enumerate(zip(PERGUNTAS_WAST, pontuacoes)):
+                        if sc > 0:
+                            indicadores_salvos.append(f"Q{i+1}: {p} → {opcoes_map[sc]}")
+
+                    try:
+                        registrar_triagem_vd(
+                            paciente_id=pac_id,
+                            nivel_risco=nivel,
+                            indicadores=json.dumps(indicadores_salvos, ensure_ascii=False),
+                            protocolo_acionado=nivel in ("alto", "critico"),
+                            observacoes=obs_clinicas,
+                            profissional_id=st.session_state.profissional_id,
+                        )
+                        st.success("✅ Triagem salva (dados criptografados no banco).")
+                    except Exception as e:
+                        st.error(f"Erro ao salvar: {e}")
+
+        if pac_id:
+            hist_vd = buscar_triagens_vd(pac_id)
+            if hist_vd:
+                with st.expander("📂 Histórico de triagens anteriores"):
+                    for t in hist_vd:
+                        cores_nivel_html = {
+                            "baixo": "#059669", "moderado": "#d97706",
+                            "alto": "#dc2626", "critico": "#7f1d1d",
+                        }
+                        cor = cores_nivel_html.get(t.nivel_risco, "#6b7280")
+                        st.markdown(
+                            f"**{t.data_triagem}** – "
+                            f'<span style="color:{cor};font-weight:600">{t.nivel_risco.upper()}</span>'
+                            f" | Protocolo acionado: {'Sim' if t.protocolo_acionado else 'Não'}",
+                            unsafe_allow_html=True,
+                        )
 
 
 # ─── TAB 5: ENCAMINHAMENTOS ────────────────────

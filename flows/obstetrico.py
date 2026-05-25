@@ -40,6 +40,24 @@ class EstadoObstetrico(TypedDict):
     resumo_final: str
 
 
+def _resumo_paciente_obstetrico(state: EstadoObstetrico) -> str:
+    altura = state.get("altura", 1.60)
+    peso = state.get("peso_atual", 65.0)
+    imc = peso / (altura ** 2) if altura > 0 else 0
+    return (
+        f"Gestante: {state.get('nome_paciente', 'N/I')} | "
+        f"Idade: {state.get('idade', 'N/I')} | IG: {state.get('semanas_gestacao', 'N/I')} semanas | "
+        f"IMC: {imc:.1f}\n"
+        f"Gestação: {state.get('tipo_gestacao', 'única')} | "
+        f"G{state.get('gestacoes_anteriores', 0)}P{state.get('partos_anteriores', 0)}"
+        f"A{state.get('abortos_anteriores', 0)}\n"
+        f"Comorbidades: {', '.join(state.get('comorbidades', [])) or 'Nenhuma'}\n"
+        f"Medicamentos: {', '.join(state.get('medicamentos_em_uso', [])) or 'Nenhum'}\n"
+        f"PA: {state.get('pressao_arterial', 'N/A')} | Glicemia jejum: {state.get('glicemia_jejum', 'N/A')}\n"
+        f"Queixas atuais: {', '.join(state.get('queixas_atuais', [])) or 'Nenhuma'}"
+    )
+
+
 def coletar_dados_gestante(state: EstadoObstetrico) -> dict:
     """Nó 1 — Consolida e valida dados da gestante."""
     altura = state.get("altura", 1.60)
@@ -97,18 +115,18 @@ def avaliar_risco_gestacional(state: EstadoObstetrico) -> dict:
     else:
         nivel = "habitual"
 
+    resumo = _resumo_paciente_obstetrico(state)
     prompt = (
-        f"Avalie o risco gestacional.\n"
-        f"Gestante: {state['nome_paciente']}, {state['idade']} anos, "
-        f"{state['semanas_gestacao']} semanas.\n"
-        f"Comorbidades: {', '.join(comorbidades) or 'Nenhuma'}\n"
-        f"Queixas: {queixas}\n"
-        f"Glicemia: {state.get('glicemia_jejum', 'N/A')}, PA: {state.get('pressao_arterial', 'N/A')}\n"
-        f"Gestações anteriores: {state.get('gestacoes_anteriores', 0)}, "
-        f"Abortos: {state.get('abortos_anteriores', 0)}\n"
+        f"Avalie o risco gestacional.\n{resumo}\n"
         f"Forneça análise de risco e recomendações. Português brasileiro."
     )
-    analise_llm = consultar_llm(prompt)
+    analise_llm = consultar_llm(
+        prompt,
+        fluxo="obstetrico",
+        especialidade="obstetricia",
+        contexto_paciente=resumo,
+        incluir_explicabilidade=False,
+    )
 
     avaliacao = state.get("avaliacao_risco", {})
     avaliacao.update({
@@ -125,15 +143,20 @@ def gerar_orientacoes_obstetricas(state: EstadoObstetrico) -> dict:
     semanas = state["semanas_gestacao"]
     nivel = state.get("nivel_risco", "habitual")
 
+    resumo = _resumo_paciente_obstetrico(state)
     prompt = (
         f"Gere orientações obstétricas para gestante de {semanas} semanas, "
-        f"risco {nivel}.\n"
-        f"Comorbidades: {', '.join(state.get('comorbidades', []))}\n"
-        f"Medicamentos: {', '.join(state.get('medicamentos_em_uso', []))}\n"
+        f"risco {nivel}.\n{resumo}\n"
         f"Inclua: alimentação, atividade física, sinais de alerta, medicações. "
         f"Português brasileiro. Máximo 15 linhas."
     )
-    return {"orientacoes": consultar_llm(prompt)}
+    return {"orientacoes": consultar_llm(
+        prompt,
+        fluxo="obstetrico",
+        especialidade="obstetricia",
+        contexto_paciente=resumo,
+        incluir_explicabilidade=True,
+    )}
 
 
 def agendar_exames_obstetricos(state: EstadoObstetrico) -> dict:
@@ -201,7 +224,9 @@ def verificar_alertas_urgencia(state: EstadoObstetrico) -> dict:
     if state.get("glicemia_jejum", 0) > 126:
         alertas.append("⚠️ DIABETES GESTACIONAL NÃO CONTROLADO")
 
-    return {"alertas_urgencia": alertas}
+    vistos = set()
+    deduplicados = [a for a in alertas if not (a in vistos or vistos.add(a))]
+    return {"alertas_urgencia": deduplicados}
 
 
 def planejar_acompanhamento(state: EstadoObstetrico) -> dict:
@@ -245,14 +270,6 @@ def planejar_acompanhamento(state: EstadoObstetrico) -> dict:
         "resumo_final": resumo,
         "timestamp": datetime.now().isoformat(),
     }
-
-
-def rotear_urgencia(state: EstadoObstetrico) -> str:
-    """Roteamento: se há alertas de urgência, pula para acompanhamento imediato."""
-    alertas = state.get("alertas_urgencia", [])
-    if any("EMERGÊNCIA" in a for a in alertas):
-        return "planejar_acompanhamento"
-    return "planejar_acompanhamento"
 
 
 def criar_fluxo_obstetrico() -> StateGraph:

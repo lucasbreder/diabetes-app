@@ -55,25 +55,43 @@ SINAIS_PESO = {
 }
 
 
+def _resumo_paciente_vd(state: EstadoViolenciaDomestica) -> str:
+    """Resumo clínico injetado nas chamadas LLM para alimentar explicabilidade."""
+    sinais = state.get("sinais_alerta", [])
+    lesoes = state.get("lesoes_observadas", [])
+    comportamento = state.get("comportamento_observado", [])
+    partes = [
+        f"Paciente: {state.get('nome_paciente', 'N/I')} | Idade: {state.get('idade', 'N/I')}",
+        f"Atendimentos anteriores: {state.get('historico_atendimentos', 0)}",
+        f"Acompanhante presente: {'Sim' if state.get('acompanhante_presente') else 'Não'}",
+        f"Sinais de alerta: {', '.join(sinais) or 'Nenhum'}",
+        f"Lesões observadas: {', '.join(lesoes) or 'Nenhuma'}",
+        f"Comportamento: {', '.join(comportamento) or 'N/A'}",
+        f"Relato: {(state.get('relato_paciente') or 'Não disponível')[:200]}",
+    ]
+    return "\n".join(partes)
+
+
 def identificar_sinais_alerta(state: EstadoViolenciaDomestica) -> dict:
     """Nó 1 — Identifica e classifica sinais de alerta."""
     sinais = state.get("sinais_alerta", [])
     lesoes = state.get("lesoes_observadas", [])
     comportamento = state.get("comportamento_observado", [])
 
+    resumo = _resumo_paciente_vd(state)
     prompt = (
         f"Você é um profissional de saúde treinado em detecção de violência doméstica.\n"
-        f"Paciente: {state['nome_paciente']}, {state['idade']} anos\n"
-        f"Sinais observados: {', '.join(sinais)}\n"
-        f"Lesões: {', '.join(lesoes)}\n"
-        f"Comportamento: {', '.join(comportamento)}\n"
-        f"Relato: {state.get('relato_paciente', 'Não disponível')}\n"
-        f"Acompanhante presente: {'Sim' if state.get('acompanhante_presente') else 'Não'}\n"
-        f"Atendimentos anteriores: {state.get('historico_atendimentos', 0)}\n\n"
+        f"{resumo}\n\n"
         f"Analise os sinais e identifique o nível de suspeita de violência doméstica. "
         f"Responda em português brasileiro."
     )
-    analise_llm = consultar_llm(prompt)
+    analise_llm = consultar_llm(
+        prompt,
+        fluxo="vd",
+        especialidade="violencia_domestica",
+        contexto_paciente=resumo,
+        incluir_explicabilidade=False,
+    )
 
     # Pontuação baseada em regras
     score = 0
@@ -113,13 +131,22 @@ def avaliar_risco(state: EstadoViolenciaDomestica) -> dict:
     nivel = state.get("nivel_risco", "baixo")
     avaliacao = state.get("avaliacao_risco", {})
 
+    resumo = _resumo_paciente_vd(state)
     prompt = (
         f"Avalie o risco de violência doméstica.\n"
+        f"{resumo}\n"
         f"Score: {avaliacao.get('score', 0)}, Nível: {nivel}\n"
         f"Sinais: {', '.join(avaliacao.get('sinais_identificados', []))}\n"
         f"Gere recomendações de ação imediata. Português brasileiro."
     )
-    recomendacoes = consultar_llm(prompt)
+    recomendacoes = consultar_llm(
+        prompt,
+        fluxo="vd",
+        especialidade="violencia_domestica",
+        contexto_paciente=resumo,
+        nivel_risco_vd=nivel,
+        incluir_explicabilidade=False,
+    )
     avaliacao["recomendacoes_llm"] = recomendacoes
     avaliacao["nivel_risco"] = nivel
     return {"avaliacao_risco": avaliacao}
@@ -217,12 +244,21 @@ def planejar_seguimento(state: EstadoViolenciaDomestica) -> dict:
     """Nó 6 — Plano de seguimento e acompanhamento."""
     nivel = state.get("nivel_risco", "baixo")
 
+    resumo = _resumo_paciente_vd(state)
     prompt = (
         f"Crie um plano de seguimento para caso de violência doméstica nível {nivel}.\n"
+        f"{resumo}\n"
         f"Inclua: retornos, rede de apoio, recursos disponíveis. "
         f"Máximo 10 linhas. Português brasileiro."
     )
-    plano_llm = consultar_llm(prompt)
+    plano_llm = consultar_llm(
+        prompt,
+        fluxo="vd",
+        especialidade="violencia_domestica",
+        contexto_paciente=resumo,
+        nivel_risco_vd=nivel,
+        incluir_explicabilidade=True,
+    )
 
     intervalos = {"critico": "24h", "alto": "48h", "moderado": "7 dias", "baixo": "30 dias"}
     plano = {
@@ -247,23 +283,14 @@ def planejar_seguimento(state: EstadoViolenciaDomestica) -> dict:
 
 
 # ============================================================
-# Roteamento condicional
-# ============================================================
-
-def rotear_por_risco(state: EstadoViolenciaDomestica) -> str:
-    """Roteamento: pula direto para acionamento de equipe se risco é crítico."""
-    nivel = state.get("nivel_risco", "baixo")
-    if nivel == "critico":
-        return "acionar_equipe"
-    return "definir_protocolo_seguranca"
-
-
-# ============================================================
 # Construção do Grafo
 # ============================================================
 
 def criar_fluxo_violencia_domestica() -> StateGraph:
-    """Cria e compila o grafo do fluxo de detecção de violência doméstica."""
+    """Cria e compila o grafo do fluxo de detecção de violência doméstica.
+    Fluxo linear (diagrama): Sinais → Avaliação → Protocolo → Equipe → Documentação → Seguimento.
+    Mesmo casos críticos passam por todos os nós — o protocolo de segurança é
+    mais rigoroso (não menos) quando o risco aumenta."""
     grafo = StateGraph(EstadoViolenciaDomestica)
 
     grafo.add_node("identificar_sinais_alerta", identificar_sinais_alerta)
@@ -275,10 +302,7 @@ def criar_fluxo_violencia_domestica() -> StateGraph:
 
     grafo.set_entry_point("identificar_sinais_alerta")
     grafo.add_edge("identificar_sinais_alerta", "avaliar_risco")
-    grafo.add_conditional_edges("avaliar_risco", rotear_por_risco, {
-        "definir_protocolo_seguranca": "definir_protocolo_seguranca",
-        "acionar_equipe": "acionar_equipe",
-    })
+    grafo.add_edge("avaliar_risco", "definir_protocolo_seguranca")
     grafo.add_edge("definir_protocolo_seguranca", "acionar_equipe")
     grafo.add_edge("acionar_equipe", "documentar_caso")
     grafo.add_edge("documentar_caso", "planejar_seguimento")
