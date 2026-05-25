@@ -12,12 +12,14 @@ def main():
     os.system("cls" if os.name == "nt" else "clear")
     print("========================================")
     print("   SISTEMA DE DIAGNÓSTICO DE DIABETES   ")
+    print("    + Fluxos de Saúde da Mulher (IA)    ")
     print("========================================")
     print("\nComo você deseja executar o projeto?\n")
     print("1. Abrir interface web com Docker (Streamlit + Ollama)")
     print("2. Rodar demonstração da pipeline localmente (Terminal)")
     print("3. Parar todos os serviços Docker")
-    print("4. Sair")
+    print("4. 🏥 Fluxos LangGraph — Saúde da Mulher")
+    print("5. Sair")
 
     try:
         escolha = input("\nDigite a opção desejada: ")
@@ -61,6 +63,10 @@ def main():
         print("✅ Tudo limpo!")
 
     elif escolha == "4":
+        print("\n🏥 Iniciando fluxos LangGraph de Saúde da Mulher...")
+        os.system(f"{sys.executable} demo_flows.py")
+
+    elif escolha == "5":
         sys.exit(0)
     else:
         print("\n⚠️ Opção inválida.")
