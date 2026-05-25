@@ -183,6 +183,47 @@ class ProtocoloMedico(Base):
     atualizado_em = Column(Date)
 
 
+class LogInteracao(Base):
+    """Rastreamento de interações com o assistente (item 4 – auditoria)."""
+    __tablename__ = "logs_interacao"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    criado_em = Column(DateTime, default=datetime.utcnow, index=True)
+    paciente_id = Column(Integer, ForeignKey("pacientes.id"), nullable=True, index=True)
+    especialidade = Column(String(80), nullable=False)   # ginecologia, obstetricia, vd, etc.
+    fluxo = Column(String(80), nullable=False)             # chat, triagem, alertas, vd, encaminhamentos
+    mensagem_resumo = Column(String(500))
+    resposta_resumo = Column(String(500))
+    guardrails_aplicados = Column(Boolean, default=False)
+    caso_violencia = Column(Boolean, default=False)
+    metadados_json = Column(Text)
+
+
+class LogAcessoSensivel(Base):
+    """Auditoria de acesso a dados sensíveis (VD, saúde mental)."""
+    __tablename__ = "logs_acesso_sensivel"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    criado_em = Column(DateTime, default=datetime.utcnow, index=True)
+    tipo_dado = Column(String(60), nullable=False)         # triagem_vd, prontuario_vd, etc.
+    paciente_id = Column(Integer, ForeignKey("pacientes.id"), nullable=True, index=True)
+    acao = Column(String(40), nullable=False)              # leitura, escrita, exportacao
+    profissional_id = Column(String(100))
+
+
+class AlertaSeguranca(Base):
+    """Alertas automáticos para equipe de segurança em casos de risco."""
+    __tablename__ = "alertas_seguranca"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    criado_em = Column(DateTime, default=datetime.utcnow, index=True)
+    paciente_id = Column(Integer, ForeignKey("pacientes.id"), nullable=True, index=True)
+    nivel = Column(String(20), nullable=False)             # moderado, alto, critico, emergencia
+    motivo = Column(Text, nullable=False)
+    protocolo_emergencia = Column(String(100))
+    resolvido = Column(Boolean, default=False)
+
+
 # ─────────────────────────────────────────────
 # Schemas Pydantic
 # ─────────────────────────────────────────────

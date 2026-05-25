@@ -9,9 +9,13 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import PromptTemplate
 from langchain_ollama import OllamaLLM
 
+from ..safety import REGRAS_SEGURANCA_PROMPT, aplicar_guardrails_resposta, stream_com_guardrails
+
 PROMPT_TRIAGEM = PromptTemplate.from_template(
     """Você é uma enfermeira obstetra especializada em triagem clínica de saúde da mulher.
 Sua função é classificar a urgência clínica com base nos sintomas relatados e orientar o profissional de saúde sobre a conduta inicial.
+
+{regras_seguranca}
 
 CLASSIFICAÇÕES DE URGÊNCIA:
 - EMERGENCIA: Risco imediato de vida -> encaminhar imediatamente para servico de emergência.
@@ -59,13 +63,17 @@ def executar_triagem_sintomas(
     llm = OllamaLLM(model=modelo, temperature=0.2)
     chain = PROMPT_TRIAGEM | llm | StrOutputParser()
 
-    return chain.invoke({
+    entrada = {
         "sintomas": "; ".join(sintomas) if sintomas else "Não informados",
         "duracao": duracao,
         "intensidade": f"{intensidade}/10" if intensidade is not None else "Não informada",
         "historico": historico,
         "contexto_paciente": contexto_paciente or "Sem dados adicionais",
-    })
+        "regras_seguranca": REGRAS_SEGURANCA_PROMPT,
+    }
+    texto_sintomas = entrada["sintomas"]
+    resposta = chain.invoke(entrada)
+    return aplicar_guardrails_resposta(resposta, texto_sintomas)
 
 
 def stream_triagem_sintomas(
@@ -80,10 +88,13 @@ def stream_triagem_sintomas(
     llm = OllamaLLM(model=modelo, temperature=0.2)
     chain = PROMPT_TRIAGEM | llm | StrOutputParser()
 
-    return chain.stream({
-        "sintomas": "; ".join(sintomas) if sintomas else "Não informados",
+    texto_sintomas = "; ".join(sintomas) if sintomas else "Não informados"
+    stream = chain.stream({
+        "sintomas": texto_sintomas,
         "duracao": duracao,
         "intensidade": f"{intensidade}/10" if intensidade is not None else "Não informada",
         "historico": historico,
         "contexto_paciente": contexto_paciente or "Sem dados adicionais",
+        "regras_seguranca": REGRAS_SEGURANCA_PROMPT,
     })
+    return stream_com_guardrails(stream, texto_sintomas)

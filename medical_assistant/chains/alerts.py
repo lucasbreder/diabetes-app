@@ -12,12 +12,15 @@ from langchain_core.prompts import PromptTemplate
 from langchain_ollama import OllamaLLM
 
 from ..database import buscar_exames_atrasados, buscar_exames_alterados, buscar_paciente
+from ..safety import REGRAS_SEGURANCA_PROMPT, aplicar_guardrails_resposta, stream_com_guardrails
 
 PROMPT_ALERTAS = PromptTemplate.from_template(
     """Você é uma assistente de saúde preventiva especializada em saúde da mulher.
 Comunique de forma clara, empática e motivadora os alertas de exames preventivos em atraso.
 Use linguagem acessível para a paciente e técnica para o profissional. Seja encorajadora.
 Responda sempre em português brasileiro.
+
+{regras_seguranca}
 
 Relatório de alertas preventivos:
 Paciente: {nome_paciente} ({idade} anos)
@@ -101,13 +104,14 @@ def gerar_alertas_exames(
     llm = OllamaLLM(model=modelo, temperature=0.3)
     chain = PROMPT_ALERTAS | llm | StrOutputParser()
 
-    resultado["texto_llm"] = chain.invoke({
+    resultado["texto_llm"] = aplicar_guardrails_resposta(chain.invoke({
         "nome_paciente": nome,
         "idade": idade,
         "exames_atrasados": _formatar_exames_atrasados(atrasados),
         "exames_alterados": _formatar_exames_alterados(alterados),
         "data_hoje": date.today().strftime("%d/%m/%Y"),
-    })
+        "regras_seguranca": REGRAS_SEGURANCA_PROMPT,
+    }))
 
     return resultado
 
@@ -132,10 +136,12 @@ def stream_alertas_exames(
     llm = OllamaLLM(model=modelo, temperature=0.3)
     chain = PROMPT_ALERTAS | llm | StrOutputParser()
 
-    return chain.stream({
+    stream = chain.stream({
         "nome_paciente": nome,
         "idade": idade,
         "exames_atrasados": _formatar_exames_atrasados(atrasados),
         "exames_alterados": _formatar_exames_alterados(alterados),
         "data_hoje": date.today().strftime("%d/%m/%Y"),
+        "regras_seguranca": REGRAS_SEGURANCA_PROMPT,
     })
+    return stream_com_guardrails(stream)

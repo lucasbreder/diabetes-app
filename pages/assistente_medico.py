@@ -129,7 +129,7 @@ from medical_assistant.chains.dv_screening import (
     stream_triagem_violencia,
     calcular_risco_wast,
 )
-from medical_assistant.chains.referrals import stream_encaminhamentos, stream_encaminhamentos
+from medical_assistant.chains.referrals import stream_encaminhamentos
 from medical_assistant.pipeline import AssistenteMedico
 
 

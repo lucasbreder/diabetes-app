@@ -25,6 +25,7 @@ from .database import (
     buscar_triagens_vd,
     init_db,
 )
+from .safety import REGRAS_SEGURANCA_PROMPT, aplicar_guardrails_resposta
 from .seed_data import popular_banco
 
 # ─────────────────────────────────────────────
@@ -37,7 +38,8 @@ obstetrícia e saúde reprodutiva. Apoia profissionais de saúde no Brasil.
 
 Sempre responda em português brasileiro. Seja técnica, empática e sensível ao gênero.
 Quando citar protocolos, referencie FEBRASGO, INCA ou Ministério da Saúde.
-Nunca tome decisões diagnósticas definitivas — você apoia, não substitui o médico.
+
+{regras_seguranca}
 
 DADOS CLÍNICOS DA PACIENTE:
 {contexto_paciente}
@@ -179,7 +181,9 @@ class AssistenteMedico:
             "chat_history": _formatar_historico(self.historico),
             "contexto_paciente": contexto,
             "protocolos_contexto": protocolos,
+            "regras_seguranca": REGRAS_SEGURANCA_PROMPT,
         })
+        resposta = aplicar_guardrails_resposta(resposta, mensagem)
 
         self._atualizar_historico(mensagem, resposta)
         return resposta
@@ -199,9 +203,16 @@ class AssistenteMedico:
             "chat_history": _formatar_historico(self.historico),
             "contexto_paciente": contexto,
             "protocolos_contexto": protocolos,
+            "regras_seguranca": REGRAS_SEGURANCA_PROMPT,
         }):
             resposta_completa += chunk
             yield chunk
+
+        resposta_final = aplicar_guardrails_resposta(resposta_completa, mensagem)
+        if resposta_final != resposta_completa:
+            sufixo = resposta_final[len(resposta_completa):]
+            yield sufixo
+            resposta_completa = resposta_final
 
         self._atualizar_historico(mensagem, resposta_completa)
 
