@@ -2,6 +2,7 @@ import streamlit as st
 from utils.shared_styles import aplicar_estilos_globais, exibir_disclaimer
 from utils.paciente_selector import render_seletor_sidebar
 from utils.fluxo_runner import executar_fluxo_com_progresso
+from utils.form_reset import render_botao_nova_consulta
 
 st.set_page_config(page_title="Acompanhamento Obstétrico", page_icon="🤰", layout="wide")
 aplicar_estilos_globais()
@@ -165,6 +166,12 @@ if submitted:
     # Resultados
     # ========================================
     st.divider()
+    col_titulo, col_acao = st.columns([3, 1])
+    with col_titulo:
+        st.markdown("## 📊 Avaliação Obstétrica")
+    with col_acao:
+        render_botao_nova_consulta(chave_botao="btn_nova_avaliacao_obstetrica")
+
     nivel = resultado.get("nivel_risco", "habitual")
 
     # Trimestre e risco

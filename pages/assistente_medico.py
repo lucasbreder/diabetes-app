@@ -90,7 +90,7 @@ st.markdown("""
 @st.cache_resource
 def _carregar_dependencias():
     try:
-        from medical_assistant.database import init_db, listar_pacientes
+        from medical_assistant.database import init_db
         from medical_assistant.seed_data import popular_banco
         init_db()
         popular_banco()
@@ -119,7 +119,6 @@ from medical_assistant.database import (
     buscar_paciente,
     buscar_prontuarios,
     buscar_triagens_vd,
-    listar_pacientes,
     registrar_triagem_vd,
 )
 from medical_assistant.chains.triage import stream_triagem_sintomas
@@ -132,7 +131,9 @@ from medical_assistant.chains.dv_screening import (
 from medical_assistant.chains.referrals import stream_encaminhamentos
 from medical_assistant.pipeline import AssistenteMedico
 from medical_assistant.audit import listar_alertas_pendentes, registrar_acesso_sensivel
-from medical_assistant.security_protocols import verificar_identidade_profissional
+
+from utils.paciente_selector import render_seletor_sidebar, SESSION_KEY as PACIENTE_SESSION_KEY
+from utils.auth_pin import render_login_sidebar, esta_autenticado, profissional_atual
 
 
 # ─────────────────────────────────────────────
@@ -141,12 +142,9 @@ from medical_assistant.security_protocols import verificar_identidade_profission
 
 def _init_state():
     defaults = {
-        "paciente_id": None,
         "assistente": None,
         "mensagens_chat": [],
         "modelo": "llama3:latest",
-        "identidade_verificada": False,
-        "profissional_id": "anonimo",
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -168,56 +166,46 @@ st.markdown("""
 
 
 # ─────────────────────────────────────────────
-# Sidebar – Seleção de Paciente
+# Sidebar – Seleção de Paciente (helper compartilhado)
 # ─────────────────────────────────────────────
 
+def _on_paciente_change(novo_id):
+    """Reset do chat e do assistente quando a paciente muda."""
+    st.session_state.mensagens_chat = []
+    if st.session_state.assistente and novo_id:
+        st.session_state.assistente.definir_paciente(novo_id)
+    elif not novo_id:
+        st.session_state.assistente = None
+
+contexto_paciente = render_seletor_sidebar(
+    titulo="👩‍⚕️ Paciente em Atendimento",
+    on_change=_on_paciente_change,
+    mostrar_navegacao=False,
+)
+pac_id = contexto_paciente.paciente_id if contexto_paciente else None
+
 with st.sidebar:
-    st.header("👩‍⚕️ Paciente em Atendimento")
-
-    pacientes = listar_pacientes()
-
-    opcoes = {f"{p.nome} (ID {p.id})": p.id for p in pacientes}
-    opcoes_lista = ["— Selecionar paciente —"] + list(opcoes.keys())
-
-    selecao = st.selectbox("Selecione a paciente:", opcoes_lista)
-
-    if selecao != "— Selecionar paciente —":
-        novo_id = opcoes[selecao]
-        if novo_id != st.session_state.paciente_id:
-            st.session_state.paciente_id = novo_id
-            st.session_state.mensagens_chat = []
-            if st.session_state.assistente:
-                st.session_state.assistente.definir_paciente(novo_id)
-
     st.divider()
-
-    st.subheader("⚙️ Configurações")
+    st.subheader("⚙️ Modelo")
     modelo_selecionado = st.selectbox(
         "Modelo Ollama:",
         ["llama3:latest", "llama3.1:8b", "mistral:7b", "gemma2:2b"],
         index=0,
+        label_visibility="collapsed",
     )
     if modelo_selecionado != st.session_state.modelo:
         st.session_state.modelo = modelo_selecionado
         st.session_state.assistente = None  # força recriação
 
     st.divider()
-    st.subheader("🔐 Verificação de identidade")
-    st.caption("Obrigatória para triagem VD e dados sensíveis.")
-    pin = st.text_input("PIN do profissional:", type="password", key="pin_profissional")
-    if st.button("Validar acesso", use_container_width=True):
-        if verificar_identidade_profissional(pin):
-            st.session_state.identidade_verificada = True
-            st.session_state.profissional_id = "profissional_autenticado"
-            st.success("Identidade verificada.")
-        else:
-            st.session_state.identidade_verificada = False
-            st.error("PIN inválido.")
-    if st.session_state.identidade_verificada:
-        st.success("✅ Sessão autenticada")
-    else:
-        st.warning("Áreas sensíveis bloqueadas")
 
+# PIN compartilhado
+render_login_sidebar(
+    titulo="🔐 Verificação de Identidade",
+    descricao="Obrigatória para triagem VD e dados sensíveis.",
+)
+
+with st.sidebar:
     alertas_seg = listar_alertas_pendentes(limite=5)
     if alertas_seg:
         st.divider()
@@ -225,7 +213,9 @@ with st.sidebar:
         for a in alertas_seg:
             st.error(f"**{a.nivel.upper()}** — {a.motivo[:80]}…")
 
-    st.page_link("pages/5_📜_Auditoria.py", label="📜 Auditoria completa", icon="📊")
+    st.divider()
+    st.page_link("app.py", label="🏠 Início")
+    st.page_link("pages/5_📜_Auditoria.py", label="📜 Auditoria completa")
 
     st.divider()
     st.caption("⚠️ Este sistema auxilia profissionais de saúde e **não substitui** o julgamento clínico.")
@@ -239,20 +229,15 @@ with st.sidebar:
 
 
 # ─────────────────────────────────────────────
-# Dados da Paciente Selecionada
+# Cartão da Paciente Selecionada (cabeçalho)
 # ─────────────────────────────────────────────
-
-pac_id = st.session_state.paciente_id
 
 if pac_id:
     paciente = buscar_paciente(pac_id)
     if paciente:
-        hoje = date.today()
-        idade = hoje.year - paciente.data_nascimento.year - (
-            (hoje.month, hoje.day) < (paciente.data_nascimento.month, paciente.data_nascimento.day)
-        )
         ultimo_pront = buscar_prontuarios(pac_id)
         up = ultimo_pront[0] if ultimo_pront else None
+        idade = contexto_paciente.idade
 
         col_info, col_alertas = st.columns([2, 1])
 
@@ -504,7 +489,7 @@ with tab_alertas:
 with tab_vd:
     st.markdown('<div class="confidential-banner">🔒 ÁREA CONFIDENCIAL – Acesso restrito ao profissional de saúde responsável</div>', unsafe_allow_html=True)
 
-    acesso_vd = st.session_state.identidade_verificada
+    acesso_vd = esta_autenticado()
 
     if not acesso_vd:
         st.warning(
@@ -517,7 +502,7 @@ with tab_vd:
                 "violencia_domestica",
                 "leitura_aba_vd",
                 paciente_id=pac_id,
-                profissional_id=st.session_state.profissional_id,
+                profissional_id=profissional_atual(),
             )
 
     st.subheader("Triagem de Violência Doméstica (WAST adaptado)")
@@ -629,7 +614,7 @@ with tab_vd:
                             indicadores=json.dumps(indicadores_salvos, ensure_ascii=False),
                             protocolo_acionado=nivel in ("alto", "critico"),
                             observacoes=obs_clinicas,
-                            profissional_id=st.session_state.profissional_id,
+                            profissional_id=profissional_atual(),
                         )
                         st.success("✅ Triagem salva (dados criptografados no banco).")
                     except Exception as e:

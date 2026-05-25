@@ -24,20 +24,14 @@ try:
         listar_logs_acesso_sensivel,
         listar_logs_interacao,
         relatorio_resumo_auditoria,
-        registrar_acesso_sensivel,
     )
-    from medical_assistant.security_protocols import verificar_identidade_profissional
+    from utils.auth_pin import render_login_sidebar, esta_autenticado
 
     init_db()
     popular_banco()
 except ImportError as e:
     st.error(f"Dependências do assistente médico não encontradas: {e}")
     st.stop()
-
-if "identidade_verificada" not in st.session_state:
-    st.session_state.identidade_verificada = False
-if "profissional_id" not in st.session_state:
-    st.session_state.profissional_id = "anonimo"
 
 st.markdown("""
 <div class="main-header">
@@ -51,28 +45,17 @@ st.caption(
     "e demais fluxos que utilizam validação e segurança."
 )
 
-with st.sidebar:
-    st.header("🔐 Acesso")
-    st.caption("PIN obrigatório para logs de violência doméstica e acessos sensíveis.")
-    pin = st.text_input("PIN do profissional:", type="password", key="pin_auditoria")
-    if st.button("Validar identidade", use_container_width=True):
-        if verificar_identidade_profissional(pin):
-            st.session_state.identidade_verificada = True
-            st.session_state.profissional_id = "profissional_autenticado"
-            registrar_acesso_sensivel(
-                "auditoria",
-                "login",
-                profissional_id=st.session_state.profissional_id,
-            )
-            st.success("Sessão autenticada.")
-        else:
-            st.session_state.identidade_verificada = False
-            st.error("PIN inválido.")
+# PIN compartilhado (registra acesso no log quando autentica)
+render_login_sidebar(
+    titulo="🔐 Acesso",
+    descricao="PIN obrigatório para logs de violência doméstica e acessos sensíveis.",
+    registrar_acesso=True,
+    tipo_acesso="auditoria",
+)
 
-    if st.session_state.identidade_verificada:
-        st.success("✅ Autenticado")
-    else:
-        st.warning("Visão restrita (métricas gerais apenas)")
+with st.sidebar:
+    if not esta_autenticado():
+        st.caption("Visão restrita: apenas métricas gerais visíveis.")
 
     st.divider()
     st.page_link("app.py", label="← Voltar ao início", icon="🏠")
@@ -145,7 +128,7 @@ with tab_interacoes:
         st.caption("Nenhum log para os filtros selecionados.")
 
 with tab_acessos:
-    if not st.session_state.identidade_verificada:
+    if not esta_autenticado():
         st.warning("Autentique-se na barra lateral para ver o histórico de acessos sensíveis.")
     else:
         acessos = listar_logs_acesso_sensivel(limite=30)
@@ -159,7 +142,7 @@ with tab_acessos:
             st.caption("Nenhum acesso sensível registrado.")
 
 with tab_vd:
-    if not st.session_state.identidade_verificada:
+    if not esta_autenticado():
         st.warning("Autentique-se para consultar logs específicos de violência doméstica.")
     else:
         logs_vd = listar_logs_interacao(apenas_vd=True, limite=20)

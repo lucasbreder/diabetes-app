@@ -134,6 +134,7 @@ def render_seletor_sidebar(
     titulo: str = "👤 Paciente em Atendimento",
     permitir_anonima: bool = True,
     on_change: Optional[callable] = None,
+    mostrar_navegacao: bool = True,
 ) -> Optional[ContextoPaciente]:
     """
     Renderiza o seletor de paciente na sidebar e devolve o contexto carregado.
@@ -218,9 +219,10 @@ def render_seletor_sidebar(
         else:
             st.info("Selecione uma paciente para pré-preencher os formulários, ou siga digitando manualmente.")
 
-        st.divider()
-        st.page_link("app.py", label="🏠 Voltar ao início")
-        st.page_link("pages/assistente_medico.py", label="🤖 Assistente Médico")
-        st.page_link("pages/5_📜_Auditoria.py", label="📜 Auditoria")
+        if mostrar_navegacao:
+            st.divider()
+            st.page_link("app.py", label="🏠 Voltar ao início")
+            st.page_link("pages/assistente_medico.py", label="🤖 Assistente Médico")
+            st.page_link("pages/5_📜_Auditoria.py", label="📜 Auditoria")
 
     return contexto

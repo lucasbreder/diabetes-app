@@ -47,7 +47,7 @@ def descriptografar_texto_vd(texto_cifrado: str) -> str:
 
 
 # PIN de demonstração; em produção usar autenticação institucional (LDAP/OAuth)
-PIN_PROFISSIONAL_PADRAO = os.environ.get("ASSISTENTE_PIN_PROFISSIONAL", "saudemulher2024")
+PIN_PROFISSIONAL_PADRAO = os.environ.get("ASSISTENTE_PIN_PROFISSIONAL", "saudemulher2026")
 
 
 def verificar_identidade_profissional(pin_informado: str) -> bool:
