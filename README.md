@@ -88,6 +88,9 @@ ollama serve
 streamlit run app.py
 ```
 
+# PIN para acesso às áreas restritas
+saudemulher2026
+
 Acesse `http://localhost:8501` → aba **Assistente Médico**.
 
 ---
@@ -205,5 +208,3 @@ Foi criado outro script para unir os datos ficticios e o dataset que utilizamos 
     ansiedade etc.);
 
 Com esses scripts finalizamos a entrega o Item 1.Fine-tuning de LLM com dados médicos especializados em saúde da mulher
-
-
